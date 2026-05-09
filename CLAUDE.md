@@ -1,0 +1,161 @@
+# meeglet-specparam-weights
+
+## Session Recovery (READ THIS FIRST)
+If you're starting a new session, recovering from compaction, or running in a Ralph loop:
+1. Read `.ralph/ralph_task.md` — the anchor. Has all checkboxes. Defines "done."
+2. Read `.ralph/progress.md` — what exists, what's broken, what to do next.
+3. Read `.ralph/guardrails.md` — learned constraints. Follow every sign.
+4. Do NOT re-read the full codebase unless progress.md says something is broken. Trust the files.
+5. Pick up the "Current Focus" from progress.md and work on it.
+6. Before exiting or if context feels heavy: update progress.md with what you did and what's next.
+
+## Compaction Instructions
+When compacting this conversation, preserve:
+- Current task and its completion state
+- Any new guardrails discovered this session
+- Any new known issues
+- The exact next step to take
+Do NOT preserve: file contents already read, full API/command outputs, failed approaches
+(log failures to .ralph/errors.log instead).
+
+## Project Purpose
+
+Time-resolved spectral decomposition of M/EEG signals into aperiodic and periodic
+time-domain components, combining meeglet's log-frequency Morlet wavelet representation
+with specparam's parametric spectral modeling and the FFT-weighting reconstruction
+approach from specparam-fft-weights.
+
+The tool computes time-varying spectral weights from wavelet-derived instantaneous power
+and time-resolved parametric fits, then applies those weights to wavelet coefficients
+(preserving phase) and synthesizes back to the time domain. The result is a
+non-stationary decomposition: aperiodic and periodic time-domain signals that track
+the dynamics of the original signal rather than assuming a single static spectrum.
+
+## Architecture
+
+```
+src/meeglet_specparam_weights/
+├── __init__.py                  # Public API re-exports
+├── wavelet_analysis.py          # meeglet wrapper: signal → complex coefficients Z(f,t)
+├── time_resolved_fit.py         # Fit specparam to instantaneous power at each time step
+├── weight_surface.py            # Compute w(f,t) = sqrt(P_model(f,t) / |Z(f,t)|²)
+├── synthesis.py                 # Weighted coefficients → time-domain signal via OLA
+├── pipeline.py                  # End-to-end: signal in → ReconstructionResult out
+└── diagnostics.py               # Fit quality, energy accounting, visualization helpers
+
+tests/
+├── test_wavelet_analysis.py     # Meeglet integration, coefficient shapes, NaN handling
+├── test_time_resolved_fit.py    # Parameter recovery on synthetic signals
+├── test_weight_surface.py       # Numerical properties: clamping, eps, edge bins
+├── test_synthesis.py            # OLA reconstruction accuracy, energy preservation
+├── test_pipeline.py             # End-to-end on synthetic signals with known ground truth
+├── test_diagnostics.py          # Plotting smoke tests, metric calculations
+└── conftest.py                  # Shared fixtures: synthetic signals, standard wavelet configs
+
+validation/
+├── sim_stationary.py            # Baseline: stationary signal, compare to specparam-fft-weights
+├── sim_nonstationary.py         # Core validation: time-varying exponent and/or peak amplitude
+├── sim_transient.py             # Transient oscillation bursts (e.g., beta events)
+├── sim_noise_sweep.py           # SNR sweep: where does the method break down?
+├── metrics.py                   # R², correlation, energy ratios, phase error metrics
+└── figures.py                   # Publication-quality figure generation
+```
+
+## Key Schemas / Interfaces
+
+### WaveletDecomposition (wavelet_analysis → weight_surface, synthesis)
+```python
+@dataclass
+class WaveletDecomposition:
+    coefficients: np.ndarray    # complex, shape (n_freqs, n_times)
+    foi: np.ndarray             # center frequencies, shape (n_freqs,)
+    sigma_time: np.ndarray      # temporal std per freq, shape (n_freqs,)
+    sigma_freq: np.ndarray      # spectral std per freq, shape (n_freqs,)
+    times: np.ndarray           # time points in seconds, shape (n_times,)
+    sfreq: float                # sampling frequency
+    bw_oct: float               # bandwidth in octaves used
+    delta_oct: float            # frequency spacing in octaves used
+```
+
+### TimeResolvedFit (time_resolved_fit → weight_surface)
+```python
+@dataclass
+class TimeResolvedFit:
+    aperiodic_params: np.ndarray   # shape (n_times, 2) — [offset, exponent] per time
+    peak_params: list[np.ndarray]  # len n_times, each (n_peaks, 3) — [cf, amp, bw]
+    model_power: np.ndarray        # shape (n_freqs, n_times) — reconstructed model PSD
+    r_squared: np.ndarray          # shape (n_times,) — fit quality per time step
+    foi: np.ndarray                # center frequencies used for fitting
+    times: np.ndarray              # time points
+    fit_stride: int                # stride in samples between fits
+```
+
+### WeightSurface (weight_surface → synthesis)
+```python
+@dataclass
+class WeightSurface:
+    weights: np.ndarray         # real, non-negative, shape (n_freqs, n_times)
+    component: str              # 'full', 'aperiodic', 'periodic'
+    eps: float                  # floor used
+    max_weight: float           # clamp used
+```
+
+### ReconstructionResult (pipeline output)
+```python
+@dataclass
+class ReconstructionResult:
+    reconstruction: np.ndarray  # time-domain signal, shape (n_samples,)
+    residual: np.ndarray        # original - reconstruction, shape (n_samples,)
+    fit: TimeResolvedFit        # the underlying parametric fit
+    weights: WeightSurface      # the weight surface applied
+    energy_ratio: float         # ||reconstruction||² / ||original||² (sanity check)
+    decomposition: WaveletDecomposition  # the wavelet decomposition used
+```
+
+## Environment
+
+- Python 3.10+
+- Key dependencies:
+  - `numpy`, `scipy`
+  - `meeglet` (pip install meeglet)
+  - `specparam>=2.0` (pip install specparam)
+  - `matplotlib` (visualization / diagnostics)
+  - `pytest`, `pytest-cov` (testing)
+- No required env vars
+- No required data files (all validation uses synthetic signals)
+- Test command: `pytest tests/ -v --tb=short`
+- Validation command: `python -m validation.sim_nonstationary`
+
+## Design Principles
+
+1. **Wavelet coefficients are the canonical representation.**
+   All weighting happens in the wavelet domain (f, t), never via global FFT.
+   The signal is decomposed once via meeglet; synthesis inverts that decomposition.
+
+2. **Phase is sacred.**
+   Weights are real and non-negative. Multiplication preserves phase exactly.
+   This is the same guarantee as specparam-fft-weights, extended to 2D.
+
+3. **Parametric model comes from specparam, not from us.**
+   We do not reimplement specparam's fitting. We call SpectralModel.fit() on
+   wavelet-derived power profiles. If specparam's fit is bad, our decomposition
+   is bad — and we surface that clearly via r² diagnostics.
+
+4. **Log-frequency is the native grid.**
+   meeglet's octave-spaced frequencies are used throughout. No interpolation to
+   linear grids. specparam fits on this log grid directly.
+
+5. **Synthesis uses overlap-add with dual-frame wavelets.**
+   Reconstruction quality is bounded by the frame properties of the wavelet family.
+   We measure and report energy ratios; we do not claim sample-exact reconstruction.
+
+6. **NaN-awareness from meeglet propagates everywhere.**
+   Bad segments marked NaN in the input are handled by meeglet's convolution.
+   Weights at NaN time points are set to 0. Reconstruction at those points is 0.
+   The residual preserves the original NaN-marked samples.
+
+7. **Validation is against synthetic ground truth with known parameters.**
+   We never validate by "it looks right." Every validation script compares
+   recovered parameters or waveforms against analytically known targets.
+   The four validation tiers are: stationary equivalence, non-stationary tracking,
+   transient detection, and noise robustness.

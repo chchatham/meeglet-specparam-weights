@@ -1,0 +1,9 @@
+# Activity Log
+
+## Iteration 0 — Project Initialization
+- Created CLAUDE.md with architecture, schemas, design principles
+- Created .ralph/ralph_task.md with 9-phase checkbox plan
+- Created .ralph/progress.md with initial state and key decisions
+- Created .ralph/guardrails.md with domain, code, and performance constraints
+- No code written yet
+- Next: Phase 1 — wavelet_analysis.py + tests
