@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>meeglet-specparam-weights</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --text-muted: #8b949e;
+            --accent: #58a6ff;
+            --accent2: #7ee787;
+            --accent3: #d2a8ff;
+            --code-bg: #0d1117;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+        .container { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+
+        header {
+            border-bottom: 1px solid var(--border);
+            padding: 48px 0 36px;
+        }
+        header h1 {
+            font-size: 2.4em;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 8px;
+        }
+        header h1 span { color: var(--accent); }
+        header p {
+            font-size: 1.15em;
+            color: var(--text-muted);
+            max-width: 700px;
+        }
+        .badges { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: 600;
+        }
+        .badge-green { background: #1a3a2a; color: var(--accent2); border: 1px solid #2a5a3a; }
+        .badge-blue { background: #1a2a3a; color: var(--accent); border: 1px solid #2a3a5a; }
+        .badge-purple { background: #2a1a3a; color: var(--accent3); border: 1px solid #3a2a5a; }
+
+        section { padding: 48px 0; border-bottom: 1px solid var(--border); }
+        section:last-child { border-bottom: none; }
+        h2 {
+            font-size: 1.6em;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: #f0f6fc;
+        }
+        h3 {
+            font-size: 1.15em;
+            font-weight: 600;
+            margin: 24px 0 12px;
+            color: #f0f6fc;
+        }
+        p { margin-bottom: 16px; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        .pipeline {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin: 24px 0;
+        }
+        .step {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            position: relative;
+        }
+        .step-num {
+            position: absolute;
+            top: -10px;
+            left: 16px;
+            background: var(--accent);
+            color: var(--bg);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75em;
+            font-weight: 700;
+        }
+        .step h4 { font-size: 0.95em; margin-bottom: 6px; color: var(--accent); }
+        .step p { font-size: 0.85em; margin: 0; color: var(--text-muted); }
+
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-x: auto;
+            margin: 16px 0;
+            font-size: 0.88em;
+            line-height: 1.5;
+        }
+        code {
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            color: var(--text);
+        }
+        .kw { color: var(--accent3); }
+        .fn { color: var(--accent); }
+        .str { color: #a5d6ff; }
+        .num { color: #79c0ff; }
+        .cm { color: var(--text-muted); }
+        .op { color: #ff7b72; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 0.9em;
+        }
+        th, td {
+            padding: 10px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th { color: var(--text-muted); font-weight: 600; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; }
+        td code { background: var(--surface); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+
+        .validation-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+            margin: 20px 0;
+        }
+        .val-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .val-card h4 { font-size: 0.95em; margin-bottom: 8px; }
+        .val-card .metric { font-size: 1.8em; font-weight: 700; color: var(--accent2); }
+        .val-card .label { font-size: 0.8em; color: var(--text-muted); margin-top: 4px; }
+
+        .arch-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin: 16px 0;
+        }
+        .arch-file {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px 16px;
+            font-family: 'SF Mono', monospace;
+            font-size: 0.85em;
+        }
+        .arch-file .name { color: var(--accent); }
+        .arch-file .desc { color: var(--text-muted); font-family: -apple-system, sans-serif; font-size: 0.9em; margin-top: 4px; }
+
+        footer {
+            padding: 32px 0;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85em;
+        }
+
+        @media (max-width: 600px) {
+            .pipeline { grid-template-columns: 1fr; }
+            .arch-grid { grid-template-columns: 1fr; }
+            .validation-grid { grid-template-columns: 1fr; }
+            header h1 { font-size: 1.8em; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>meeglet-specparam-<span>weights</span></h1>
+            <p>Time-resolved spectral decomposition of M/EEG signals via wavelet-domain parametric weighting.</p>
+            <div class="badges">
+                <span class="badge badge-green">69 tests passing</span>
+                <span class="badge badge-blue">4 validations passing</span>
+                <span class="badge badge-purple">Python 3.10+</span>
+            </div>
+        </header>
+
+        <section>
+            <h2>Overview</h2>
+            <p>
+                This tool combines <a href="https://github.com/nbara/python-meeglet">meeglet</a>'s Morlet wavelets
+                with <a href="https://github.com/fooof-tools/fooof">specparam</a>'s parametric spectral modeling
+                to produce time-varying aperiodic and periodic decompositions of neural signals.
+            </p>
+            <p>
+                Unlike FFT-based approaches that assume stationarity, this method tracks spectral dynamics:
+                drifting aperiodic slopes, transient oscillatory bursts, and time-varying peak amplitudes
+                are all resolved in the output.
+            </p>
+
+            <h3>Pipeline</h3>
+            <div class="pipeline">
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <h4>Wavelet Decompose</h4>
+                    <p>Signal &rarr; complex coefficients Z(f,t) on a log-frequency grid via meeglet Morlet wavelets.</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <h4>Parametric Fit</h4>
+                    <p>Fit specparam to instantaneous power |Z(f,t)|&sup2; at strided time points. Interpolate between fits.</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <h4>Weight Surface</h4>
+                    <p>Compute w(f,t) = &radic;(P_model / P_empirical) for the target component (aperiodic, periodic, or full).</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">4</div>
+                    <h4>Synthesize</h4>
+                    <p>Multiply Z(f,t) &times; w(f,t), preserving phase exactly. Reconstruct via OLA with iterative refinement.</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Tutorial</h2>
+            <h3>Installation</h3>
+<pre><code><span class="cm"># Install dependencies</span>
+pip install numpy scipy meeglet specparam matplotlib
+
+<span class="cm"># Clone and install</span>
+git clone https://github.com/chchatham/meeglet-specparam-weights.git
+cd meeglet-specparam-weights</code></pre>
+
+            <h3>Basic Usage: Extract the Aperiodic Component</h3>
+<pre><code><span class="kw">import</span> numpy <span class="kw">as</span> np
+<span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> <span class="fn">meeglet_specparam_reconstruct</span>
+
+<span class="cm"># Generate a test signal: pink noise + 10 Hz oscillation</span>
+sfreq = <span class="num">256.0</span>
+t = np.<span class="fn">arange</span>(<span class="fn">int</span>(<span class="num">10</span> * sfreq)) / sfreq
+rng = np.random.<span class="fn">default_rng</span>(<span class="num">42</span>)
+
+<span class="cm"># Create pink noise</span>
+white = rng.<span class="fn">standard_normal</span>(<span class="fn">len</span>(t))
+fft = np.fft.<span class="fn">rfft</span>(white)
+freqs = np.fft.<span class="fn">rfftfreq</span>(<span class="fn">len</span>(t), d=<span class="num">1.0</span> / sfreq)
+freqs[<span class="num">0</span>] = <span class="num">1.0</span>
+fft *= <span class="num">1.0</span> / np.<span class="fn">power</span>(freqs, <span class="num">0.75</span>)
+signal = np.fft.<span class="fn">irfft</span>(fft, n=<span class="fn">len</span>(t))
+signal += <span class="num">2.0</span> * np.<span class="fn">sin</span>(<span class="num">2</span> * np.pi * <span class="num">10</span> * t)  <span class="cm"># add alpha</span>
+
+<span class="cm"># Extract the aperiodic component</span>
+result = <span class="fn">meeglet_specparam_reconstruct</span>(
+    signal, sfreq,
+    component=<span class="str">"aperiodic"</span>,
+    foi_start=<span class="num">2.0</span>, foi_end=<span class="num">50.0</span>,
+    bw_oct=<span class="num">0.5</span>,
+    fit_stride=<span class="num">50</span>,
+    power_window=<span class="num">400</span>,
+    freq_range=[<span class="num">1</span>, <span class="num">50</span>],
+    n_iter=<span class="num">5</span>,
+)
+
+aperiodic = result.reconstruction   <span class="cm"># aperiodic time-domain signal</span>
+residual = result.residual           <span class="cm"># contains the oscillations</span>
+<span class="fn">print</span>(<span class="str">f"Mean r&sup2;: </span>{result.fit.r_squared.<span class="fn">mean</span>():<span class="str">.3f</span>}<span class="str">"</span>)</code></pre>
+
+            <h3>Extract the Periodic Component</h3>
+<pre><code><span class="cm"># Same signal, extract oscillatory content instead</span>
+result_periodic = <span class="fn">meeglet_specparam_reconstruct</span>(
+    signal, sfreq,
+    component=<span class="str">"periodic"</span>,
+    foi_start=<span class="num">2.0</span>, foi_end=<span class="num">50.0</span>,
+    bw_oct=<span class="num">0.5</span>,
+    fit_stride=<span class="num">50</span>,
+    power_window=<span class="num">400</span>,
+    freq_range=[<span class="num">1</span>, <span class="num">50</span>],
+    n_iter=<span class="num">5</span>,
+)
+
+periodic = result_periodic.reconstruction  <span class="cm"># oscillatory signal</span></code></pre>
+
+            <h3>Diagnostics</h3>
+<pre><code><span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> (
+    <span class="fn">plot_fit_quality</span>,
+    <span class="fn">plot_weight_surface</span>,
+    <span class="fn">plot_decomposition</span>,
+    <span class="fn">plot_parameter_trajectories</span>,
+)
+
+<span class="fn">plot_fit_quality</span>(result)            <span class="cm"># r&sup2; over time</span>
+<span class="fn">plot_weight_surface</span>(result)         <span class="cm"># 2D weight heatmap (freq &times; time)</span>
+<span class="fn">plot_decomposition</span>(result)          <span class="cm"># original / reconstruction / residual</span>
+<span class="fn">plot_parameter_trajectories</span>(result) <span class="cm"># exponent, offset, peak CFs</span></code></pre>
+
+            <h3>Key Parameters</h3>
+            <table>
+                <thead>
+                    <tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>component</code></td><td><code>"aperiodic"</code></td><td>Which component to reconstruct: <code>"aperiodic"</code>, <code>"periodic"</code>, or <code>"full"</code></td></tr>
+                    <tr><td><code>foi_start</code> / <code>foi_end</code></td><td><code>2.0</code> / <code>32.0</code></td><td>Frequency range for wavelet analysis (Hz)</td></tr>
+                    <tr><td><code>bw_oct</code></td><td><code>0.5</code></td><td>Wavelet bandwidth in octaves</td></tr>
+                    <tr><td><code>fit_stride</code></td><td><code>10</code></td><td>Fit specparam every N samples (higher = faster)</td></tr>
+                    <tr><td><code>power_window</code></td><td><code>None</code></td><td>Samples to average power over before fitting</td></tr>
+                    <tr><td><code>n_iter</code></td><td><code>1</code></td><td>Iterative synthesis refinement (use 5 for best quality)</td></tr>
+                    <tr><td><code>smooth_sigma</code></td><td><code>None</code></td><td>Gaussian smoothing of parameter trajectories</td></tr>
+                    <tr><td><code>eps</code></td><td><code>1e-20</code></td><td>Floor for weight denominator</td></tr>
+                    <tr><td><code>max_weight</code></td><td><code>100.0</code></td><td>Maximum allowed weight</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Validation Results</h2>
+            <p>All validation uses synthetic signals with known ground truth. No real EEG data in the repo.</p>
+            <div class="validation-grid">
+                <div class="val-card">
+                    <h4>Stationary Equivalence</h4>
+                    <div class="metric">r = 0.85</div>
+                    <div class="label">Correlation with FFT-weights baseline</div>
+                </div>
+                <div class="val-card">
+                    <h4>Alpha Suppression</h4>
+                    <div class="metric">99.3%</div>
+                    <div class="label">10 Hz power removed in aperiodic output</div>
+                </div>
+                <div class="val-card">
+                    <h4>Exponent Tracking</h4>
+                    <div class="metric">r = 0.92</div>
+                    <div class="label">Correlation with true ramping exponent</div>
+                </div>
+                <div class="val-card">
+                    <h4>Alpha On/Off Contrast</h4>
+                    <div class="metric">7.2x</div>
+                    <div class="label">Power ratio between on and off blocks</div>
+                </div>
+                <div class="val-card">
+                    <h4>Beta Burst Detection</h4>
+                    <div class="metric">96%</div>
+                    <div class="label">200ms bursts detected in periodic output</div>
+                </div>
+                <div class="val-card">
+                    <h4>SNR Robustness</h4>
+                    <div class="metric">r&sup2; &gt; 0.95</div>
+                    <div class="label">Fit quality maintained down to -10 dB SNR</div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Architecture</h2>
+            <div class="arch-grid">
+                <div class="arch-file">
+                    <div class="name">wavelet_analysis.py</div>
+                    <div class="desc">meeglet wrapper: signal &rarr; Z(f,t)</div>
+                </div>
+                <div class="arch-file">
+                    <div class="name">time_resolved_fit.py</div>
+                    <div class="desc">specparam fitting at each time step</div>
+                </div>
+                <div class="arch-file">
+                    <div class="name">weight_surface.py</div>
+                    <div class="desc">w(f,t) = &radic;(P_model / P_empirical)</div>
+                </div>
+                <div class="arch-file">
+                    <div class="name">synthesis.py</div>
+                    <div class="desc">Weighted OLA with iterative refinement</div>
+                </div>
+                <div class="arch-file">
+                    <div class="name">pipeline.py</div>
+                    <div class="desc">End-to-end: signal &rarr; ReconstructionResult</div>
+                </div>
+                <div class="arch-file">
+                    <div class="name">diagnostics.py</div>
+                    <div class="desc">Visualization helpers</div>
+                </div>
+            </div>
+        </section>
+
+        <footer>
+            <p>
+                <a href="https://github.com/chchatham/meeglet-specparam-weights">GitHub</a>
+                &nbsp;&middot;&nbsp;
+                MIT License
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
