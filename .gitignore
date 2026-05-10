@@ -10,4 +10,5 @@ build/
 .claude/
 .ralph/errors.log
 *.png
+!docs/figures/*.png
 *.pdf
