@@ -106,3 +106,9 @@ SpectralModel.fit() takes ~5-50ms per call depending on frequency resolution
 and number of peaks. A 10-second signal at 256 Hz has 2560 time points.
 Fitting every point = 12-128 seconds. Default stride should be >= 10.
 Interpolation between fitted points is mandatory for usable performance.
+
+### 🚧 Figure generation uses matplotlib Agg backend
+docs/generate_figures.py must use `matplotlib.use("Agg")` before importing
+pyplot because the script runs headless. Takes ~2 minutes for all 7 figures
+due to multiple specparam fits. Regenerate with:
+`/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 docs/generate_figures.py`

@@ -80,6 +80,174 @@ plot_decomposition(result)          # original / reconstruction / residual
 plot_parameter_trajectories(result) # exponent, offset, peak CFs over time
 ```
 
+## Advanced workflows
+
+These workflows illustrate research scenarios where time-resolved decomposition provides capabilities beyond what static FFT-based methods can offer. Each draws inspiration from common [specparam-fft-weights](https://github.com/chchatham/specparam-fft-weights) use cases but exploits the wavelet method's ability to track spectral dynamics continuously.
+
+### Workflow 1: Time-varying oscillatory waveform morphology
+
+Extract the periodic component to study waveform shape (e.g., alpha peak–trough asymmetry) without 1/f contamination. Unlike a static correction, the aperiodic model adapts at each time step, so the periodic extraction stays clean even as the background slope drifts with arousal or cognitive load.
+
+```python
+import numpy as np
+from scipy.signal import butter, sosfiltfilt, hilbert
+from meeglet_specparam_weights import meeglet_specparam_reconstruct
+
+# Decompose with time-adaptive 1/f correction
+result = meeglet_specparam_reconstruct(
+    signal, sfreq,
+    component="periodic",
+    foi_start=2.0, foi_end=50.0,
+    bw_oct=0.5,
+    fit_stride=50,
+    power_window=400,
+    freq_range=[1, 50],
+    n_iter=5,
+)
+
+# Bandpass for alpha waveform analysis
+sos = butter(4, [7, 14], btype="band", fs=sfreq, output="sos")
+alpha_waveform = sosfiltfilt(sos, result.reconstruction)
+
+# Measure peak-trough asymmetry
+analytic = hilbert(alpha_waveform)
+phase = np.angle(analytic)
+
+peak_idx = np.where(np.diff(np.sign(phase)) < 0)[0]
+trough_idx = np.where(np.diff(np.sign(phase - np.pi)) < 0)[0]
+
+asymmetry = np.mean(alpha_waveform[peak_idx]) / np.mean(np.abs(alpha_waveform[trough_idx]))
+print(f"Peak-trough asymmetry: {asymmetry:.2f}")
+```
+
+### Workflow 2: Within-trial event-related decomposition
+
+Traditional 1/f-corrected ERP analysis fits one specparam model per epoch and subtracts a static aperiodic signal. The wavelet method resolves spectral changes *within* each trial — alpha desynchronization onset, aperiodic slope shifts with engagement — giving you a time-varying periodic power envelope rather than a single per-epoch number.
+
+```python
+import numpy as np
+from meeglet_specparam_weights import meeglet_specparam_reconstruct
+from scipy.signal import hilbert, butter, sosfiltfilt
+
+# epochs: (n_epochs, n_samples) — e.g., -0.5 to 1.5s around stimulus
+sfreq = 256.0
+t_epoch = np.arange(epochs.shape[1]) / sfreq - 0.5
+
+alpha_envelopes = []
+exponent_trajectories = []
+
+for epoch in epochs:
+    result = meeglet_specparam_reconstruct(
+        epoch, sfreq,
+        component="periodic",
+        foi_start=2.0, foi_end=40.0,
+        bw_oct=0.5,
+        fit_stride=25,
+        power_window=200,
+        freq_range=[1, 40],
+        n_iter=5,
+    )
+
+    # Alpha envelope within this trial
+    sos = butter(4, [8, 13], btype="band", fs=sfreq, output="sos")
+    alpha_bp = sosfiltfilt(sos, result.reconstruction)
+    alpha_envelopes.append(np.abs(hilbert(alpha_bp)))
+
+    # Track aperiodic exponent within the trial
+    exponent_trajectories.append(result.fit.aperiodic_params[:, 1])
+
+# Event-related alpha envelope
+mean_alpha_env = np.mean(alpha_envelopes, axis=0)
+baseline = mean_alpha_env[t_epoch < 0].mean()
+post_stim = mean_alpha_env[(t_epoch > 0.2) & (t_epoch < 0.8)].mean()
+erd_pct = 100 * (baseline - post_stim) / baseline
+print(f"Alpha ERD: {erd_pct:.1f}%")
+```
+
+### Workflow 3: Continuous aperiodic state tracking
+
+The aperiodic exponent reflects cortical excitation–inhibition balance. With FFT-based methods, you compare discrete epochs (rest vs. task). The wavelet method gives you a continuous exponent trajectory, enabling detection of state transitions and gradual drifts within a single recording.
+
+```python
+import numpy as np
+from meeglet_specparam_weights import meeglet_specparam_reconstruct
+from scipy.ndimage import uniform_filter1d
+
+# Long recording (e.g., 5-minute resting state)
+result = meeglet_specparam_reconstruct(
+    signal, sfreq,
+    component="aperiodic",
+    foi_start=2.0, foi_end=50.0,
+    bw_oct=0.5,
+    fit_stride=100,        # fit every ~0.4s for long recordings
+    power_window=800,       # ~3s averaging for stable fits
+    smooth_sigma=5.0,       # smooth parameter trajectory
+    freq_range=[1, 50],
+    n_iter=5,
+)
+
+# Continuous exponent trajectory
+times = result.fit.times
+exponent = result.fit.aperiodic_params[:, 1]
+
+# Smooth for state-level analysis (10s moving average)
+exponent_smooth = uniform_filter1d(exponent, size=int(10 * sfreq / 100))
+
+# Detect state transitions
+d_exp = np.gradient(exponent_smooth, times)
+transition_mask = np.abs(d_exp) > np.std(d_exp) * 2
+print(f"State transitions detected at: {times[transition_mask]} s")
+```
+
+### Workflow 4: Transient oscillatory burst detection
+
+Transient oscillatory bursts (beta events, sleep spindles, gamma bursts) are invisible to methods that assume stationarity — a 200 ms burst is smeared into the global spectrum. The wavelet method's periodic reconstruction preserves burst timing and shape, enabling envelope-based detection with precise onset, duration, and amplitude estimates.
+
+```python
+import numpy as np
+from scipy.signal import butter, sosfiltfilt, hilbert
+from meeglet_specparam_weights import meeglet_specparam_reconstruct
+
+# Fine-grained periodic extraction for burst detection
+result = meeglet_specparam_reconstruct(
+    signal, sfreq,
+    component="periodic",
+    foi_start=2.0, foi_end=50.0,
+    bw_oct=0.5,
+    fit_stride=25,        # fine stride for transient detection
+    power_window=100,     # short window to preserve burst timing
+    freq_range=[1, 50],
+    n_iter=5,
+)
+
+# Beta envelope from the periodic reconstruction
+sos = butter(4, [13, 30], btype="band", fs=sfreq, output="sos")
+beta_periodic = sosfiltfilt(sos, result.reconstruction)
+beta_envelope = np.abs(hilbert(beta_periodic))
+
+# Detect bursts: median + 2×MAD threshold
+median_env = np.median(beta_envelope)
+mad = np.median(np.abs(beta_envelope - median_env)) * 1.4826
+threshold = median_env + 2 * mad
+burst_mask = beta_envelope > threshold
+
+# Extract burst events
+diff_mask = np.diff(burst_mask.astype(int))
+onsets = np.where(diff_mask == 1)[0]
+offsets = np.where(diff_mask == -1)[0]
+
+if len(offsets) > 0 and (len(onsets) == 0 or offsets[0] < onsets[0]):
+    offsets = offsets[1:]
+if len(onsets) > len(offsets):
+    onsets = onsets[:len(offsets)]
+
+for i, (on, off) in enumerate(zip(onsets, offsets)):
+    duration_ms = (off - on) / sfreq * 1000
+    peak_amp = beta_envelope[on:off].max()
+    print(f"Burst {i}: onset={on / sfreq:.3f}s, "
+          f"duration={duration_ms:.0f}ms, peak={peak_amp:.3f}")
+```
+
 ## What this is not
 
 - **Not an exact reconstruction.** Wavelet synthesis via overlap-add is approximate. Energy ratios are reported; sample-exact recovery is not guaranteed. For stationary signals where exact reconstruction matters, use [specparam-fft-weights](https://github.com/chchatham/specparam-fft-weights) directly.

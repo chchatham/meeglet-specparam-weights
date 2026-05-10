@@ -92,4 +92,4 @@ reconstruction idea from specparam-fft-weights.
 - Validation scripts in `validation/`
 
 ## Current Focus
-Phase 9: Diagnostics & Polish
+All phases complete. GitHub Pages site elaborated with figures.
