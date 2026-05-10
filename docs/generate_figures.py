@@ -14,7 +14,12 @@ from matplotlib.gridspec import GridSpec
 from scipy.signal import welch, hilbert, butter, sosfilt, sosfiltfilt
 from scipy.ndimage import median_filter
 
-from meeglet_specparam_weights import meeglet_specparam_reconstruct
+from meeglet_specparam_weights import (
+    meeglet_specparam_reconstruct,
+    wavelet_decompose,
+    time_resolved_fit,
+)
+from meeglet_specparam_weights.weight_surface import compute_weight_surface
 from validation.metrics import generate_pink_noise, correlation
 
 FIGDIR = os.path.join(os.path.dirname(__file__), "figures")
@@ -96,7 +101,7 @@ def fig_decomposition():
     axes[2].set_ylabel("Periodic")
 
     axes[3].plot(ts, result_ap.residual[mask], color=ORANGE, linewidth=0.6, alpha=0.7)
-    axes[3].set_ylabel("Residual")
+    axes[3].set_ylabel("Periodic\n(subtracted)")
     axes[3].set_xlabel("Time (s)")
 
     for ax in axes:
@@ -108,7 +113,7 @@ def fig_decomposition():
 
 
 def fig_weight_surface():
-    """Generate the weight surface heatmap."""
+    """Generate the weight surface heatmap (diagnostic aperiodic Wiener weight)."""
     print("  [2/9] Weight surface...")
     sfreq = 256.0
     n_samples = int(10 * sfreq)
@@ -118,30 +123,31 @@ def fig_weight_surface():
     alpha = 2.0 * np.sin(2 * np.pi * 10 * t)
     signal = pink + alpha
 
-    result = meeglet_specparam_reconstruct(
-        signal, sfreq, component="aperiodic",
-        foi_start=2.0, foi_end=50.0, bw_oct=0.5,
-        fit_stride=50, power_window=400,
-        freq_range=[1, 50], n_iter=5, edge_taper=True,
+    decomp = wavelet_decompose(
+        signal, sfreq, foi_start=2.0, foi_end=50.0, bw_oct=0.5,
     )
+    fit = time_resolved_fit(
+        decomp, fit_stride=50, power_window=400, freq_range=[1, 50],
+    )
+    ws = compute_weight_surface(decomp, fit, component="aperiodic")
 
-    W = result.weights.weights
-    times = result.decomposition.times
-    foi = result.decomposition.foi
+    W = ws.weights
+    times = decomp.times
+    foi = decomp.foi
 
     fig, axes = plt.subplots(2, 1, figsize=(12, 5.5), gridspec_kw={"height_ratios": [3, 1]})
 
     im = axes[0].pcolormesh(times, foi, W, shading="auto", cmap="viridis", vmin=0, vmax=2.5)
     axes[0].set_yscale("log")
     axes[0].set_ylabel("Frequency (Hz)")
-    axes[0].set_title("Aperiodic Weight Surface w(f, t)")
+    axes[0].set_title("Aperiodic Weight Ratio w(f, t) = √(P_aperiodic / |Z|²)  [diagnostic]")
     axes[0].set_yticks([2, 5, 10, 20, 50])
     axes[0].set_yticklabels(["2", "5", "10", "20", "50"])
     cb = plt.colorbar(im, ax=axes[0], label="Weight", pad=0.01)
     cb.ax.yaxis.label.set_color(DARK_TEXT)
     cb.ax.tick_params(colors=DARK_MUTED)
 
-    axes[1].plot(times, result.fit.r_squared, color=BLUE, linewidth=0.8)
+    axes[1].plot(times, fit.r_squared, color=BLUE, linewidth=0.8)
     axes[1].axhline(0.85, color=ORANGE, linestyle="--", linewidth=0.8, alpha=0.7, label="r²=0.85")
     axes[1].set_ylabel("r²")
     axes[1].set_xlabel("Time (s)")
@@ -457,11 +463,11 @@ def fig_snr_robustness():
 
     mean_r2s = []
     min_r2s = []
-    alpha_sups = []
+    peak_ratios = []
 
     for snr in snr_range:
         r2s_seed = []
-        sups_seed = []
+        ratios_seed = []
         for seed in range(n_seeds):
             rng = np.random.default_rng(seed)
             pink = generate_pink_noise(sfreq, n_samples, 1.5, rng)
@@ -478,17 +484,17 @@ def fig_snr_robustness():
             )
             r2s_seed.append(np.mean(result.fit.r_squared))
 
-            f_orig, psd_orig = welch(sig, fs=sfreq, nperseg=512)
-            f_rec, psd_rec = welch(result.reconstruction, fs=sfreq, nperseg=512)
-            i10 = np.argmin(np.abs(f_orig - 10))
-            if psd_orig[i10] > 1e-30:
-                sups_seed.append((1 - psd_rec[i10] / psd_orig[i10]) * 100)
+            f_res, psd_res = welch(result.residual, fs=sfreq, nperseg=512)
+            i10 = np.argmin(np.abs(f_res - 10))
+            i5 = np.argmin(np.abs(f_res - 5))
+            if psd_res[i5] > 1e-30:
+                ratios_seed.append(psd_res[i10] / psd_res[i5])
             else:
-                sups_seed.append(100.0)
+                ratios_seed.append(1.0)
 
         mean_r2s.append(np.mean(r2s_seed))
         min_r2s.append(np.min(r2s_seed))
-        alpha_sups.append(np.mean(sups_seed))
+        peak_ratios.append(np.mean(ratios_seed))
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
@@ -502,16 +508,17 @@ def fig_snr_robustness():
     axes[0].legend(loc="lower right", fontsize=9)
     axes[0].grid(True, alpha=0.2)
 
-    bars = axes[1].bar(snr_range, alpha_sups, width=3.5, color=GREEN, alpha=0.8, edgecolor=DARK_BORDER)
+    axes[1].plot(snr_range, peak_ratios, "o-", color=GREEN, linewidth=2, markersize=7)
     axes[1].set_xlabel("SNR (dB)")
-    axes[1].set_ylabel("Alpha Suppression (%)")
-    axes[1].set_ylim(90, 101)
-    axes[1].set_title("Alpha (10 Hz) Suppression vs SNR")
-    axes[1].grid(True, alpha=0.2, axis="y")
+    axes[1].set_ylabel("Peak Ratio (10 Hz / 5 Hz)")
+    axes[1].set_yscale("log")
+    axes[1].set_title("Periodic Extraction Quality vs SNR")
+    axes[1].grid(True, alpha=0.2)
 
-    for bar, val in zip(bars, alpha_sups):
-        axes[1].text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.2,
-                     f"{val:.0f}%", ha="center", va="bottom", fontsize=8, color=DARK_MUTED)
+    for x, val in zip(snr_range, peak_ratios):
+        axes[1].annotate(f"{val:.0f}x" if val >= 1 else f"{val:.1f}x",
+                         (x, val), textcoords="offset points", xytext=(0, 10),
+                         ha="center", fontsize=8, color=DARK_MUTED)
 
     fig.tight_layout()
     fig.savefig(os.path.join(FIGDIR, "snr_robustness.png"))
