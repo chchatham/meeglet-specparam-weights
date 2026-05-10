@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .wavelet_analysis import WaveletDecomposition
-from .time_resolved_fit import TimeResolvedFit, aperiodic_power_hz
+from .time_resolved_fit import TimeResolvedFit
 
 
 @dataclass

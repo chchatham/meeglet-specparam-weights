@@ -287,21 +287,23 @@ def _interpolate_to_all_times(
     )
 
     valid_fit_indices = np.where(valid)[0]
+    all_t = np.arange(n_times)
+    left_indices = np.clip(
+        np.searchsorted(valid_indices, all_t, side="right") - 1,
+        0, len(valid_indices) - 1,
+    )
+    right_indices = np.clip(left_indices + 1, 0, len(valid_indices) - 1)
+
     peak_params_all: list[np.ndarray] = []
     for t in range(n_times):
-        left_idx = np.searchsorted(valid_indices, t, side="right") - 1
-        right_idx = left_idx + 1
-        left_idx = np.clip(left_idx, 0, len(valid_indices) - 1)
-        right_idx = np.clip(right_idx, 0, len(valid_indices) - 1)
-
-        fit_left = valid_fit_indices[left_idx]
-        fit_right = valid_fit_indices[right_idx]
+        fit_left = valid_fit_indices[left_indices[t]]
+        fit_right = valid_fit_indices[right_indices[t]]
 
         if fit_left == fit_right:
             peak_params_all.append(peak_params_fitted[fit_left])
         else:
-            t_left = valid_indices[left_idx]
-            t_right = valid_indices[right_idx]
+            t_left = valid_indices[left_indices[t]]
+            t_right = valid_indices[right_indices[t]]
             alpha = (t - t_left) / max(t_right - t_left, 1)
             pk_left = peak_params_fitted[fit_left]
             pk_right = peak_params_fitted[fit_right]

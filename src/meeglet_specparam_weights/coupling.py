@@ -66,11 +66,8 @@ def aperiodic_virtual_channels(
     for f_idx in range(len(foi)):
         if foi[f_idx] > effective_nyq:
             virtual[:, f_idx, :] = 0.0
-
-    for v in range(2):
-        for f_idx in range(len(foi)):
-            if foi[f_idx] > effective_nyq:
-                continue
+            continue
+        for v in range(2):
             coeffs = virtual[v, f_idx, :].copy()
             coeffs -= np.mean(coeffs)
             rms = np.sqrt(np.mean(np.abs(coeffs) ** 2))
@@ -172,14 +169,29 @@ def aperiodic_amplitude_correlation(
 
     amp_corr = np.zeros((n_ch, n_freqs))
     exp_valid = ~np.isnan(exponent)
+
     for ch in range(n_ch):
-        amplitudes = np.abs(Z[ch])  # (n_freqs, n_times)
-        for f_idx in range(n_freqs):
-            valid = exp_valid & ~np.isnan(amplitudes[f_idx])
-            if np.sum(valid) > 10:
-                amp_corr[ch, f_idx] = np.corrcoef(
-                    exponent[valid], amplitudes[f_idx, valid]
-                )[0, 1]
+        amplitudes = np.abs(Z[ch])
+        has_amp_nans = np.any(np.isnan(amplitudes))
+
+        if not has_amp_nans and np.all(exp_valid):
+            exp_centered = exponent - np.mean(exponent)
+            amp_centered = amplitudes - amplitudes.mean(axis=1, keepdims=True)
+            numerator = (exp_centered[np.newaxis, :] * amp_centered).sum(axis=1)
+            denom = np.sqrt(np.sum(exp_centered ** 2) * (amp_centered ** 2).sum(axis=1))
+            valid_denom = denom > 0
+            amp_corr[ch, valid_denom] = numerator[valid_denom] / denom[valid_denom]
+        else:
+            for f_idx in range(n_freqs):
+                valid = exp_valid & ~np.isnan(amplitudes[f_idx])
+                if np.sum(valid) > 10:
+                    e = exponent[valid]
+                    a = amplitudes[f_idx, valid]
+                    e_c = e - e.mean()
+                    a_c = a - a.mean()
+                    d = np.sqrt(np.sum(e_c ** 2) * np.sum(a_c ** 2))
+                    if d > 0:
+                        amp_corr[ch, f_idx] = np.sum(e_c * a_c) / d
 
     return amp_corr
 

@@ -99,8 +99,10 @@ def synthesize(
     w = weights.weights
     multichannel = Z.ndim == 3
 
+    wavelets = _get_wavelets(decomposition)
+
     if not multichannel:
-        return _synthesize_single(Z, w, decomposition, edge_taper, n_iter)
+        return _synthesize_single(Z, w, wavelets, decomposition, edge_taper, n_iter)
 
     n_channels = Z.shape[0]
     n_samples = Z.shape[2]
@@ -110,7 +112,7 @@ def synthesize(
     max_frame_condition = 1.0
 
     for ch in range(n_channels):
-        recon_ch, _, fc = _synthesize_single(Z[ch], w[ch], decomposition, edge_taper, n_iter)
+        recon_ch, _, fc = _synthesize_single(Z[ch], w[ch], wavelets, decomposition, edge_taper, n_iter)
         all_recon[ch] = recon_ch
         total_recon_energy += np.sum(recon_ch ** 2)
         total_empirical_energy += np.sum(np.abs(Z[ch]) ** 2)
@@ -123,6 +125,7 @@ def synthesize(
 def _synthesize_single(
     Z_ch: np.ndarray,
     w_ch: np.ndarray,
+    wavelets,
     decomposition: WaveletDecomposition,
     edge_taper: bool,
     n_iter: int,
@@ -131,7 +134,6 @@ def _synthesize_single(
     n_freqs, n_samples = Z_ch.shape
 
     target_Z = Z_ch * w_ch
-    wavelets = _get_wavelets(decomposition)
 
     raw_recon, norm_envelope = _ola_synthesis(target_Z, wavelets, n_samples)
     safe_norm = np.maximum(norm_envelope, 1e-30)
@@ -160,7 +162,7 @@ def _synthesize_single(
             taper[-max_kernel_half:] = ramp[::-1]
             reconstruction *= taper
 
-    # Frame bounds from normalization envelope: A = min, B = max, condition = B/A
+    # Interior slice avoids edge effects where fewer wavelets contribute
     interior = slice(n_samples // 4, 3 * n_samples // 4)
     A = float(np.min(norm_envelope[interior]))
     B = float(np.max(norm_envelope[interior]))
