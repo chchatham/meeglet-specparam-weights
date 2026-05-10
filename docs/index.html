@@ -658,9 +658,9 @@ periodic = result_periodic.reconstruction  <span class="cm"># oscillatory signal
             <h3>Workflow 1: Time-Varying Oscillatory Waveform Morphology</h3>
             <p>
                 Alpha oscillations often exhibit non-sinusoidal waveform shapes (peak&ndash;trough asymmetry)
-                that carry physiological meaning. Extracting these shapes requires removing the aperiodic
-                background &mdash; but if the 1/f slope changes across a recording (e.g., with arousal
-                or cognitive load), a static correction biases the waveform. The wavelet method adapts the
+                that may carry information about underlying dynamics. Extracting these shapes requires
+                removing the aperiodic background &mdash; but if the 1/f slope changes over the course
+                of a recording, a static correction biases the waveform. The wavelet method adapts the
                 aperiodic model at every time step, so the periodic extraction stays clean even as the
                 background shifts.
             </p>
@@ -668,7 +668,7 @@ periodic = result_periodic.reconstruction  <span class="cm"># oscillatory signal
 <span class="kw">from</span> scipy.signal <span class="kw">import</span> <span class="fn">butter</span>, <span class="fn">sosfiltfilt</span>, <span class="fn">hilbert</span>
 <span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> <span class="fn">meeglet_specparam_reconstruct</span>
 
-<span class="cm"># Suppose `signal` has a drifting aperiodic slope (e.g., drowsiness onset)</span>
+<span class="cm"># Suppose `signal` has a drifting aperiodic slope over time</span>
 <span class="cm"># and intermittent alpha with non-sinusoidal shape</span>
 result = <span class="fn">meeglet_specparam_reconstruct</span>(
     signal, sfreq,
@@ -709,7 +709,7 @@ asymmetry = np.<span class="fn">mean</span>(peak_amplitudes) / np.<span class="f
             <p>
                 Traditional 1/f-corrected ERP analysis fits one specparam model per epoch and subtracts
                 a static aperiodic signal. But spectral structure often changes <em>within</em> a trial &mdash;
-                alpha desynchronizes after stimulus onset, aperiodic slopes steepen with engagement.
+                alpha desynchronizes after stimulus onset, aperiodic slopes change within a trial.
                 The wavelet method resolves these within-trial dynamics, giving you a time-varying
                 periodic power envelope for each trial rather than a single number.
             </p>
@@ -761,11 +761,10 @@ erd_pct = <span class="num">100</span> * (baseline - post_stim) / baseline
             <hr class="section-divider">
             <h3>Workflow 3: Continuous Aperiodic State Tracking</h3>
             <p>
-                The aperiodic exponent reflects cortical excitation&ndash;inhibition balance and shifts with
-                brain state. With FFT-based methods, you compare discrete epochs (rest vs. task,
-                pre vs. post). The wavelet method gives you a <em>continuous</em> exponent trajectory,
-                enabling detection of state transitions, gradual drifts, and moment-to-moment
-                fluctuations within a single recording.
+                The aperiodic exponent varies across time and experimental conditions. With FFT-based
+                methods, you compare discrete epochs (rest vs. task, pre vs. post). The wavelet method
+                gives you a <em>continuous</em> exponent trajectory, enabling detection of transitions,
+                gradual drifts, and moment-to-moment fluctuations within a single recording.
             </p>
 <pre><code><span class="kw">import</span> numpy <span class="kw">as</span> np
 <span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> <span class="fn">meeglet_specparam_reconstruct</span>
@@ -802,7 +801,7 @@ transition_times = times[transition_mask]
 <span class="fn">print</span>(<span class="str">f"State transitions detected at: </span>{transition_times}<span class="str"> s"</span>)
 
 <span class="cm"># Compare aperiodic RMS across detected segments</span>
-<span class="cm"># (segments between transitions represent quasi-stable brain states)</span>
+<span class="cm"># (segments between transitions represent quasi-stable spectral states)</span>
 aperiodic = result.reconstruction
 segment_boundaries = np.<span class="fn">concatenate</span>([[<span class="num">0</span>],
     np.<span class="fn">where</span>(transition_mask)[<span class="num">0</span>],

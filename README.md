@@ -10,7 +10,7 @@ This tool combines three existing ideas into something new:
 
 ## The problem
 
-specparam-fft-weights solves a real gap: it gets specparam's frequency-domain decomposition back into the time domain so it can be used in event-related, connectivity, and waveform analyses. But it assumes stationarity — one specparam fit produces one global weight vector applied uniformly across the signal. EEG is not stationary. Alpha power bursts, aperiodic slopes shift with cognitive load, transient beta events come and go. A static decomposition cannot track any of this.
+specparam-fft-weights solves a real gap: it gets specparam's frequency-domain decomposition back into the time domain so it can be used in event-related, connectivity, and waveform analyses. But it assumes stationarity — one specparam fit produces one global weight vector applied uniformly across the signal. EEG is not stationary. Alpha power bursts, aperiodic slopes vary over time, transient beta events come and go. A static decomposition cannot track any of this.
 
 ## The approach
 
@@ -86,7 +86,7 @@ These workflows illustrate research scenarios where time-resolved decomposition 
 
 ### Workflow 1: Time-varying oscillatory waveform morphology
 
-Extract the periodic component to study waveform shape (e.g., alpha peak–trough asymmetry) without 1/f contamination. Unlike a static correction, the aperiodic model adapts at each time step, so the periodic extraction stays clean even as the background slope drifts with arousal or cognitive load.
+Extract the periodic component to study waveform shape (e.g., alpha peak–trough asymmetry) without 1/f contamination. Unlike a static correction, the aperiodic model adapts at each time step, so the periodic extraction stays clean even as the background slope drifts over the course of a recording.
 
 ```python
 import numpy as np
@@ -122,7 +122,7 @@ print(f"Peak-trough asymmetry: {asymmetry:.2f}")
 
 ### Workflow 2: Within-trial event-related decomposition
 
-Traditional 1/f-corrected ERP analysis fits one specparam model per epoch and subtracts a static aperiodic signal. The wavelet method resolves spectral changes *within* each trial — alpha desynchronization onset, aperiodic slope shifts with engagement — giving you a time-varying periodic power envelope rather than a single per-epoch number.
+Traditional 1/f-corrected ERP analysis fits one specparam model per epoch and subtracts a static aperiodic signal. The wavelet method resolves spectral changes *within* each trial — alpha desynchronization, aperiodic slope changes — giving you a time-varying periodic power envelope rather than a single per-epoch number.
 
 ```python
 import numpy as np
@@ -166,7 +166,7 @@ print(f"Alpha ERD: {erd_pct:.1f}%")
 
 ### Workflow 3: Continuous aperiodic state tracking
 
-The aperiodic exponent reflects cortical excitation–inhibition balance. With FFT-based methods, you compare discrete epochs (rest vs. task). The wavelet method gives you a continuous exponent trajectory, enabling detection of state transitions and gradual drifts within a single recording.
+The aperiodic exponent varies across time and experimental conditions. With FFT-based methods, you compare discrete epochs (rest vs. task). The wavelet method gives you a continuous exponent trajectory, enabling detection of transitions and gradual drifts within a single recording.
 
 ```python
 import numpy as np
