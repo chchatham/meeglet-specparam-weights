@@ -11,7 +11,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-from scipy.signal import welch, hilbert, butter, sosfilt
+from scipy.signal import welch, hilbert, butter, sosfilt, sosfiltfilt
 from scipy.ndimage import median_filter
 
 from meeglet_specparam_weights import meeglet_specparam_reconstruct
@@ -151,6 +151,58 @@ def fig_weight_surface():
 
     fig.tight_layout(h_pad=0.6)
     fig.savefig(os.path.join(FIGDIR, "weight_surface.png"))
+    plt.close(fig)
+
+
+def fig_periodic_weight_surface():
+    """Generate the periodic contribution surface (power-weighted weights)."""
+    print("  [3/9] Periodic weight surface...")
+    sfreq = 256.0
+    n_samples = int(10 * sfreq)
+    t = np.arange(n_samples) / sfreq
+    rng = np.random.default_rng(42)
+    pink = generate_pink_noise(sfreq, n_samples, 1.5, rng)
+    alpha = 2.0 * np.sin(2 * np.pi * 10 * t)
+    signal = pink + alpha
+
+    result = meeglet_specparam_reconstruct(
+        signal, sfreq, component="periodic",
+        foi_start=2.0, foi_end=50.0, bw_oct=0.5,
+        fit_stride=50, power_window=400,
+        freq_range=[1, 50], n_iter=5, edge_taper=True,
+    )
+
+    W = result.weights.weights
+    times = result.decomposition.times
+    foi = result.decomposition.foi
+    empirical_power = np.abs(result.decomposition.coefficients) ** 2
+
+    effective_amplitude = W * np.sqrt(empirical_power)
+    effective_amplitude /= np.max(effective_amplitude)
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 5.5), gridspec_kw={"height_ratios": [3, 1]})
+
+    im = axes[0].pcolormesh(times, foi, effective_amplitude, shading="auto",
+                             cmap="magma", vmin=0, vmax=1.0)
+    axes[0].set_yscale("log")
+    axes[0].set_ylabel("Frequency (Hz)")
+    axes[0].set_title("Periodic Contribution: w(f,t) × |Z(f,t)| (normalized)")
+    axes[0].set_yticks([2, 5, 10, 20, 50])
+    axes[0].set_yticklabels(["2", "5", "10", "20", "50"])
+    cb = plt.colorbar(im, ax=axes[0], label="Relative amplitude", pad=0.01)
+    cb.ax.yaxis.label.set_color(DARK_TEXT)
+    cb.ax.tick_params(colors=DARK_MUTED)
+
+    axes[1].plot(times, result.fit.r_squared, color=GREEN, linewidth=0.8)
+    axes[1].axhline(0.85, color=ORANGE, linestyle="--", linewidth=0.8, alpha=0.7, label="r²=0.85")
+    axes[1].set_ylabel("r²")
+    axes[1].set_xlabel("Time (s)")
+    axes[1].set_ylim(0.5, 1.05)
+    axes[1].legend(loc="lower left", fontsize=9)
+    axes[1].grid(True, alpha=0.2)
+
+    fig.tight_layout(h_pad=0.6)
+    fig.savefig(os.path.join(FIGDIR, "periodic_weight_surface.png"))
     plt.close(fig)
 
 
@@ -512,13 +564,106 @@ def fig_spectral_comparison():
     plt.close(fig)
 
 
+def fig_phase_preservation():
+    """Generate phase preservation verification figure."""
+    print("  [9/9] Phase preservation...")
+    sfreq = 256.0
+    n_samples = int(10 * sfreq)
+    t = np.arange(n_samples) / sfreq
+    rng = np.random.default_rng(42)
+    pink = generate_pink_noise(sfreq, n_samples, 1.5, rng)
+    alpha = 2.0 * np.sin(2 * np.pi * 10 * t)
+    signal = pink + alpha
+
+    result = meeglet_specparam_reconstruct(
+        signal, sfreq, component="periodic",
+        foi_start=2.0, foi_end=50.0, bw_oct=0.5,
+        fit_stride=50, power_window=400,
+        freq_range=[1, 50], n_iter=5, edge_taper=True,
+    )
+
+    sos = butter(4, [8, 12], btype="band", fs=sfreq, output="sos")
+    orig_alpha = sosfiltfilt(sos, signal)
+    recon_alpha = sosfiltfilt(sos, result.reconstruction)
+
+    edge = int(2 * sfreq)
+    orig_trim = orig_alpha[edge:-edge]
+    recon_trim = recon_alpha[edge:-edge]
+    t_trim = t[edge:-edge]
+
+    phase_orig = np.angle(hilbert(orig_trim))
+    phase_recon = np.angle(hilbert(recon_trim))
+    phase_diff = np.angle(np.exp(1j * (phase_recon - phase_orig)))
+
+    circ_mean = np.angle(np.mean(np.exp(1j * phase_diff)))
+    circ_r = np.abs(np.mean(np.exp(1j * phase_diff)))
+    circ_std = np.sqrt(-2 * np.log(max(circ_r, 1e-10)))
+
+    o_n = orig_trim / (np.std(orig_trim) + 1e-30)
+    r_n = recon_trim / (np.std(recon_trim) + 1e-30)
+    n_pts = len(o_n)
+    xcorr = np.correlate(o_n, r_n, mode="full") / n_pts
+    lags_ms = np.arange(-(n_pts - 1), n_pts) / sfreq * 1000
+
+    near_zero = np.abs(lags_ms) < 50
+    near_zero_indices = np.where(near_zero)[0]
+    peak_idx = near_zero_indices[np.argmax(xcorr[near_zero])]
+    peak_lag_ms = lags_ms[peak_idx]
+
+    fig, axes = plt.subplots(3, 1, figsize=(12, 7.5))
+
+    t0, t1 = 3.0, 4.5
+    mask = (t >= t0) & (t <= t1)
+    axes[0].plot(t[mask], orig_alpha[mask], color=DARK_TEXT, linewidth=1.3,
+                 alpha=0.8, label="Original (8–12 Hz)")
+    axes[0].plot(t[mask], recon_alpha[mask], color=GREEN, linewidth=1.3,
+                 linestyle="--", label="Periodic recon (8–12 Hz)")
+    axes[0].set_ylabel("Amplitude")
+    axes[0].set_xlabel("Time (s)")
+    axes[0].set_title("Phase Preservation: Original vs Periodic Reconstruction")
+    axes[0].legend(loc="upper right", fontsize=9)
+    axes[0].grid(True, alpha=0.2)
+
+    axes[1].plot(t_trim, np.degrees(phase_diff), color=CYAN, linewidth=0.4, alpha=0.7)
+    axes[1].axhline(0, color=ORANGE, linewidth=0.8, linestyle="--", alpha=0.5)
+    axes[1].set_ylabel("Phase difference (°)")
+    axes[1].set_xlabel("Time (s)")
+    axes[1].set_ylim(-45, 45)
+    axes[1].grid(True, alpha=0.2)
+    axes[1].text(
+        0.98, 0.85,
+        f"Circular mean: {np.degrees(circ_mean):.1f}°\n"
+        f"Circular std: {np.degrees(circ_std):.1f}°",
+        transform=axes[1].transAxes, ha="right", va="top", fontsize=10,
+        color=GREEN,
+        bbox=dict(boxstyle="round,pad=0.3", facecolor=DARK_SURFACE,
+                  edgecolor=DARK_BORDER),
+    )
+
+    show_mask = np.abs(lags_ms) < 200
+    axes[2].plot(lags_ms[show_mask], xcorr[show_mask], color=PURPLE, linewidth=1.5)
+    axes[2].axvline(0, color=DARK_MUTED, linewidth=0.5, linestyle=":")
+    axes[2].axvline(peak_lag_ms, color=ORANGE, linewidth=1.0, linestyle="--",
+                    alpha=0.7, label=f"Peak lag: {peak_lag_ms:.1f} ms")
+    axes[2].set_xlabel("Lag (ms)")
+    axes[2].set_ylabel("Cross-correlation")
+    axes[2].legend(loc="upper right", fontsize=9)
+    axes[2].grid(True, alpha=0.2)
+
+    fig.tight_layout(h_pad=0.6)
+    fig.savefig(os.path.join(FIGDIR, "phase_preservation.png"))
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     print("Generating figures for GitHub Pages...")
     fig_decomposition()
     fig_weight_surface()
+    fig_periodic_weight_surface()
     fig_exponent_tracking()
     fig_alpha_onoff()
     fig_beta_bursts()
     fig_snr_robustness()
     fig_spectral_comparison()
+    fig_phase_preservation()
     print("Done! Figures saved to docs/figures/")

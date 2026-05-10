@@ -27,7 +27,7 @@ All phases complete (1–9). GitHub Pages site elaborated with validation figure
 - `validation/RESULTS.md` — documented results
 - `docs/index.html` — GitHub Pages site with figures ✓
 - `docs/generate_figures.py` — reproducible figure generation script ✓
-- `docs/figures/` — 7 dark-themed PNG figures ✓
+- `docs/figures/` — 9 dark-themed PNG figures ✓
 - **Total: 69 tests, all passing**
 
 ## Key Implementation Details
@@ -40,15 +40,21 @@ All phases complete (1–9). GitHub Pages site elaborated with validation figure
 - Python 3.12 at /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
 
 ## What's Done This Session
-- Added "Advanced Workflows" section to `docs/index.html` (between Tutorial and Architecture)
-  - Workflow 1: Time-varying oscillatory waveform morphology (alpha asymmetry with adaptive 1/f)
-  - Workflow 2: Within-trial event-related decomposition (per-trial alpha ERD envelopes)
-  - Workflow 3: Continuous aperiodic state tracking (exponent trajectory, transition detection)
-  - Workflow 4: Transient oscillatory burst detection (beta burst timing/duration/amplitude)
-- Added nav link for "Advanced Workflows" in sticky nav bar
-- Added corresponding "Advanced workflows" section to `README.md`
-- All workflows draw inspiration from specparam-fft-weights advanced workflows but showcase
-  time-resolved capabilities unique to the wavelet method
+- Added periodic contribution surface figure (`periodic_weight_surface.png`) to devpage
+  - Shows effective periodic amplitude w(f,t)×|Z(f,t)| normalized to [0,1]
+  - Alpha band (10 Hz) appears as bright horizontal stripe on dark background
+  - Power-weighted view avoids noisy raw weights at high frequencies
+- Added phase preservation section to devpage "What It Produces"
+  - Explains wavelet-domain phase preservation: arg(Z×w)=arg(Z) for real w≥0
+  - Clarifies that weight surfaces are amplitude envelopes, not spectrograms
+  - Explains time-domain phase fidelity depends on OLA synthesis quality
+- Added phase preservation verification figure (`phase_preservation.png`)
+  - Waveform overlay: original and periodic alpha align precisely
+  - Phase difference: circular mean -1.3°, circular std 3.3°
+  - Cross-correlation: peak at 0.0 ms lag (no systematic phase shift)
+- Updated `generate_figures.py` to produce 9 figures (was 7)
+- Expanded README phase preservation note in Design rationale section
+- All 69 tests passing, all 9 figures generated successfully
 
 ## What's Next
 All phases complete. Potential future work:

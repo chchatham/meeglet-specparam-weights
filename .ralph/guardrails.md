@@ -112,3 +112,8 @@ docs/generate_figures.py must use `matplotlib.use("Agg")` before importing
 pyplot because the script runs headless. Takes ~2 minutes for all 7 figures
 due to multiple specparam fits. Regenerate with:
 `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 docs/generate_figures.py`
+
+### 🚧 .gitignore blocks *.png — docs/figures/ needs an exception
+The `.gitignore` has a blanket `*.png` rule. To track figures for the GitHub Pages
+site, `!docs/figures/*.png` was added as an exception. If new image directories are
+added (e.g., `docs/screenshots/`), they will also need explicit exceptions.

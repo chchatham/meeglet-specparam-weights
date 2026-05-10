@@ -259,7 +259,7 @@ for i, (on, off) in enumerate(zip(onsets, offsets)):
 See `CLAUDE.md` for the full architecture and design principles. The key decisions:
 
 1. Wavelet coefficients (not FFT bins) are the canonical representation.
-2. Phase is preserved exactly — weights are real and non-negative.
+2. Phase is preserved exactly — weights are real and non-negative. Multiplying complex wavelet coefficients by a real positive scalar preserves their phase by construction. The weight surface controls amplitude at each (frequency, time) point without rotating phase; the original signal's phase structure is carried through the complex coefficients and recovered in synthesis.
 3. specparam does the fitting; we do the bridging.
 4. Log-frequency is the native grid (with interpolation to linear grids for specparam fitting).
 5. Energy accounting is transparent, not hidden.

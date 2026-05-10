@@ -92,4 +92,4 @@ reconstruction idea from specparam-fft-weights.
 - Validation scripts in `validation/`
 
 ## Current Focus
-All phases complete. GitHub Pages site elaborated with figures.
+All phases complete. Advanced workflows tutorial added to docs and README. Figures committed and deployed.

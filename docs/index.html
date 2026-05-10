@@ -359,7 +359,7 @@
             </p>
 
             <div class="figure-block">
-                <img src="figures/weight_surface.png" alt="2D weight surface heatmap with fit quality over time">
+                <img src="figures/weight_surface.png" alt="2D aperiodic weight surface heatmap with fit quality over time">
                 <div class="figure-caption">
                     <strong>Aperiodic weight surface and fit quality.</strong>
                     <em>Top:</em> The weight surface w(f, t) for the aperiodic component. The dark band near 10 Hz
@@ -367,6 +367,56 @@
                     frequency. Weights near 1.0 (purple) preserve the signal; weights near 0 remove it.
                     <em>Bottom:</em> Specparam fit quality (r&sup2;) over time, consistently above 0.95, indicating
                     reliable parametric fits at every time step.
+                </div>
+            </div>
+
+            <div class="figure-block">
+                <img src="figures/periodic_weight_surface.png" alt="Periodic contribution surface showing alpha band isolation with fit quality over time">
+                <div class="figure-caption">
+                    <strong>Periodic contribution surface and fit quality.</strong>
+                    <em>Top:</em> Effective periodic amplitude w(f,t) &times; |Z(f,t)|, normalized to [0, 1].
+                    This power-weighted view shows where the periodic weights produce meaningful spectral
+                    contribution: the bright band near 10 Hz reveals the alpha oscillation isolated by the
+                    method. Unlike raw periodic weights (which can be noisy at frequencies with negligible
+                    signal power), this visualization directly shows where the periodic reconstruction draws
+                    its content. <em>Bottom:</em> Fit quality (r&sup2;) is identical to the aperiodic case
+                    &mdash; both components share the same underlying specparam fit; the difference is which
+                    part of the model generates the weights.
+                </div>
+            </div>
+
+            <h3>Phase Preservation</h3>
+            <p>
+                The weight surface is a <strong>real-valued, non-negative</strong> scaling applied to complex
+                wavelet coefficients: Z(f,t) &times; w(f,t). Because w is real and &ge; 0,
+                the operation preserves phase exactly in the wavelet domain &mdash;
+                arg(Z &times; w) = arg(Z) for any w &ge; 0. The weight surface shown above
+                is a magnitude-only operation: it controls how much power passes through at each
+                (frequency, time) point without rotating the phase of the underlying oscillation.
+            </p>
+            <p>
+                In the time domain, phase fidelity depends on the synthesis quality. The OLA
+                reconstruction with iterative refinement (<code>n_iter=5</code>) preserves phase
+                structure with high accuracy, as verified below: the periodic reconstruction&rsquo;s
+                alpha oscillation aligns in phase with the original signal&rsquo;s alpha content.
+                The weight surface heatmaps above should therefore be understood as amplitude
+                envelopes, not spectrograms &mdash; they contain no phase information themselves,
+                but the phase of the original signal is carried through the complex wavelet
+                coefficients and faithfully recovered in the synthesis.
+            </p>
+
+            <div class="figure-block">
+                <img src="figures/phase_preservation.png" alt="Phase preservation verification: waveform alignment, phase difference, and cross-correlation">
+                <div class="figure-caption">
+                    <strong>Phase preservation verification.</strong>
+                    <em>Top:</em> Bandpass-filtered (8&ndash;12 Hz) original signal overlaid with the
+                    periodic reconstruction &mdash; peaks and zero crossings align precisely.
+                    <em>Middle:</em> Instantaneous phase difference between original and reconstruction
+                    over time, with circular statistics. Phase error stays within a narrow band
+                    around zero throughout the signal.
+                    <em>Bottom:</em> Cross-correlation between the two alpha waveforms, peaking at
+                    zero lag &mdash; confirming that no systematic phase shift is introduced by
+                    the weight-and-synthesize pipeline.
                 </div>
             </div>
         </section>
