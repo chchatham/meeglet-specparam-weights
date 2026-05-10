@@ -267,6 +267,8 @@
             <a href="#results">Results</a>
             <a href="#validation">Validation</a>
             <a href="#tutorial">Tutorial</a>
+            <a href="#multichannel">Multi-Channel</a>
+            <a href="#coupling">Coupling</a>
             <a href="#workflows">Advanced Workflows</a>
             <a href="#architecture">Architecture</a>
         </div>
@@ -277,7 +279,7 @@
             <h1>meeglet-specparam-<span>weights</span></h1>
             <p>Time-resolved spectral decomposition of M/EEG signals via wavelet-domain parametric weighting.</p>
             <div class="badges">
-                <span class="badge badge-green">69 tests passing</span>
+                <span class="badge badge-green">105 tests passing</span>
                 <span class="badge badge-blue">4 validations passing</span>
                 <span class="badge badge-purple">Python 3.10+</span>
             </div>
@@ -331,7 +333,7 @@
                 <div class="step">
                     <div class="step-num">4</div>
                     <h4>Synthesize</h4>
-                    <p>Multiply Z(f,t) &times; w(f,t), preserving phase exactly. Reconstruct via OLA with iterative refinement.</p>
+                    <p>Multiply Z(f,t) &times; w(f,t), preserving phase exactly. Reconstruct via OLA with iterative refinement. Reports <code>frame_condition</code> (B/A &asymp; 1.0 for tight frame).</p>
                 </div>
             </div>
 
@@ -593,7 +595,8 @@ result = <span class="fn">meeglet_specparam_reconstruct</span>(
 
 aperiodic = result.reconstruction   <span class="cm"># aperiodic time-domain signal</span>
 residual = result.residual           <span class="cm"># contains the oscillations</span>
-<span class="fn">print</span>(<span class="str">f"Mean r&sup2;: </span>{result.fit.r_squared.<span class="fn">mean</span>():<span class="str">.3f</span>}<span class="str">"</span>)</code></pre>
+<span class="fn">print</span>(<span class="str">f"Mean r&sup2;: </span>{result.fit.r_squared.<span class="fn">mean</span>():<span class="str">.3f</span>}<span class="str">"</span>)
+<span class="fn">print</span>(<span class="str">f"Frame condition: </span>{result.frame_condition:<span class="str">.3f</span>}<span class="str">"</span>)  <span class="cm"># B/A &asymp; 1.0 = tight frame</span></code></pre>
 
             <h3>Extract the Periodic Component</h3>
 <pre><code><span class="cm"># Same signal, extract oscillatory content instead</span>
@@ -616,12 +619,14 @@ periodic = result_periodic.reconstruction  <span class="cm"># oscillatory signal
     <span class="fn">plot_weight_surface</span>,
     <span class="fn">plot_decomposition</span>,
     <span class="fn">plot_parameter_trajectories</span>,
+    <span class="fn">plot_aperiodic_coupling</span>,
 )
 
 <span class="fn">plot_fit_quality</span>(result)            <span class="cm"># r&sup2; over time</span>
 <span class="fn">plot_weight_surface</span>(result)         <span class="cm"># 2D weight heatmap (freq &times; time)</span>
 <span class="fn">plot_decomposition</span>(result)          <span class="cm"># original / reconstruction / residual</span>
-<span class="fn">plot_parameter_trajectories</span>(result) <span class="cm"># exponent, offset, peak CFs</span></code></pre>
+<span class="fn">plot_parameter_trajectories</span>(result) <span class="cm"># exponent, offset, peak CFs</span>
+<span class="cm"># plot_aperiodic_coupling(coupling)  # coupling heatmap (see Coupling section)</span></code></pre>
 
             <h3>Key Parameters</h3>
             <table>
@@ -640,6 +645,174 @@ periodic = result_periodic.reconstruction  <span class="cm"># oscillatory signal
                     <tr><td><code>max_weight</code></td><td><code>100.0</code></td><td>Maximum allowed weight</td></tr>
                 </tbody>
             </table>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- MULTI-CHANNEL -->
+        <!-- ============================================================ -->
+        <section id="multichannel">
+            <h2>Multi-Channel Support</h2>
+            <p>
+                All pipeline functions accept 2D input <code>(n_channels, n_samples)</code> in addition
+                to 1D. Each channel is processed independently &mdash; same wavelet grid, same fit
+                parameters, but separate specparam fits and weight surfaces per channel. Single-channel
+                input continues to produce the same output shapes as before.
+            </p>
+
+<pre><code><span class="kw">import</span> numpy <span class="kw">as</span> np
+<span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> <span class="fn">meeglet_specparam_reconstruct</span>
+
+<span class="cm"># Multi-channel signal: (n_channels, n_samples)</span>
+signal = np.<span class="fn">stack</span>([channel_1, channel_2, channel_3])  <span class="cm"># (3, n_samples)</span>
+
+result = <span class="fn">meeglet_specparam_reconstruct</span>(
+    signal, sfreq,
+    component=<span class="str">"aperiodic"</span>,
+    foi_start=<span class="num">2</span>, foi_end=<span class="num">50</span>,
+    bw_oct=<span class="num">0.5</span>,
+    fit_stride=<span class="num">50</span>,
+    power_window=<span class="num">400</span>,
+    freq_range=[<span class="num">1</span>, <span class="num">50</span>],
+    n_iter=<span class="num">5</span>,
+)
+
+<span class="cm"># Multi-channel output shapes:</span>
+<span class="cm"># result.reconstruction:              (n_channels, n_samples)</span>
+<span class="cm"># result.residual:                    (n_channels, n_samples)</span>
+<span class="cm"># result.fit.aperiodic_params:        (n_channels, n_times, 2)</span>
+<span class="cm"># result.fit.r_squared:               (n_channels, n_times)</span>
+<span class="cm"># result.fit.model_power:             (n_channels, n_freqs, n_times)</span>
+<span class="cm"># result.weights.weights:             (n_channels, n_freqs, n_times)</span>
+<span class="cm"># result.decomposition.coefficients:  (n_channels, n_freqs, n_times)</span></code></pre>
+
+            <h3>Output shapes</h3>
+            <table>
+                <thead>
+                    <tr><th>Field</th><th>Single-channel</th><th>Multi-channel</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>result.reconstruction</code></td><td><code>(n_samples,)</code></td><td><code>(n_channels, n_samples)</code></td></tr>
+                    <tr><td><code>result.fit.aperiodic_params</code></td><td><code>(n_times, 2)</code></td><td><code>(n_channels, n_times, 2)</code></td></tr>
+                    <tr><td><code>result.fit.r_squared</code></td><td><code>(n_times,)</code></td><td><code>(n_channels, n_times)</code></td></tr>
+                    <tr><td><code>result.weights.weights</code></td><td><code>(n_freqs, n_times)</code></td><td><code>(n_channels, n_freqs, n_times)</code></td></tr>
+                    <tr><td><code>result.decomposition.coefficients</code></td><td><code>(n_freqs, n_times)</code></td><td><code>(n_channels, n_freqs, n_times)</code></td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- COUPLING -->
+        <!-- ============================================================ -->
+        <section id="coupling">
+            <h2>Aperiodic-Oscillatory Coupling</h2>
+            <p>
+                The coupling module tests whether slow fluctuations in aperiodic parameters (exponent, offset)
+                are correlated with oscillatory amplitude at specific frequencies. This is a common question in
+                systems neuroscience &mdash; do changes in the &ldquo;background&rdquo; 1/f slope predict changes
+                in alpha or beta power?
+            </p>
+
+            <h3>Approach</h3>
+            <p>
+                Aperiodic parameter trajectories (exponent and offset over time) are wavelet-decomposed into
+                &ldquo;virtual channels&rdquo; on the same frequency grid as the real data. These virtual channels
+                are band-limited to the effective Nyquist (<code>sfreq / (2 &times; fit_stride)</code>), z-scored
+                for unit normalization, and augmented into the cross-spectral density matrix alongside the real
+                wavelet coefficients. The result is an augmented CSD of shape
+                <code>(n_ch + 2, n_ch + 2, n_freqs)</code>.
+            </p>
+
+<pre><code><span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> (
+    <span class="fn">wavelet_decompose</span>, <span class="fn">time_resolved_fit</span>,
+    <span class="fn">aperiodic_virtual_channels</span>,
+    <span class="fn">compute_aperiodic_csd</span>, <span class="fn">aperiodic_amplitude_correlation</span>,
+    <span class="fn">effective_dof</span>, <span class="fn">wavelet_effective_dof</span>,
+    <span class="fn">plot_aperiodic_coupling</span>,
+)
+
+<span class="cm"># Multi-channel signal: (n_channels, n_samples)</span>
+decomp = <span class="fn">wavelet_decompose</span>(signal, sfreq, foi_start=<span class="num">2</span>, foi_end=<span class="num">50</span>)
+fit = <span class="fn">time_resolved_fit</span>(decomp, fit_stride=<span class="num">25</span>, power_window=<span class="num">200</span>)
+
+<span class="cm"># Simple amplitude correlation: corr(exponent(t), |Z(ch, f, t)|)</span>
+amp_corr = <span class="fn">aperiodic_amplitude_correlation</span>(decomp, fit)
+<span class="cm"># amp_corr shape: (n_channels, n_freqs)</span>
+
+<span class="cm"># Full augmented CSD with virtual channels</span>
+coupling = <span class="fn">compute_aperiodic_csd</span>(decomp, fit)
+<span class="fn">print</span>(<span class="str">f"CSD shape: </span>{coupling.csd.shape}<span class="str">"</span>)           <span class="cm"># (n_ch+2, n_ch+2, n_freqs)</span>
+<span class="fn">print</span>(<span class="str">f"Effective Nyquist: </span>{coupling.effective_nyquist:<span class="str">.1f</span>}<span class="str"> Hz"</span>)
+<span class="fn">print</span>(<span class="str">f"Labels: </span>{coupling.channel_labels}<span class="str">"</span>)          <span class="cm"># ['ch0', ..., 'exponent', 'offset']</span>
+
+<span class="cm"># Correct DOF for autocorrelated signals (Bartlett)</span>
+exponent = fit.aperiodic_params[:, <span class="num">1</span>]
+amplitude_10hz = np.<span class="fn">abs</span>(decomp.coefficients[idx_10, :])
+n_eff = <span class="fn">effective_dof</span>(exponent, amplitude_10hz)
+
+<span class="cm"># Frequency-dependent DOF from wavelet temporal resolution</span>
+n_eff_wavelet = <span class="fn">wavelet_effective_dof</span>(decomp.sigma_time, decomp.sfreq, signal.shape[-<span class="num">1</span>])
+<span class="cm"># n_eff_wavelet shape: (n_freqs,) &mdash; lower freqs have fewer independent samples</span>
+
+<span class="cm"># Virtual channels: wavelet-decomposed exponent/offset trajectories</span>
+virtual_coeffs, eff_nyq = <span class="fn">aperiodic_virtual_channels</span>(fit, decomp)
+<span class="cm"># virtual_coeffs shape: (2, n_freqs, n_times) &mdash; z-scored, band-limited</span>
+
+<span class="cm"># Visualize</span>
+<span class="fn">plot_aperiodic_coupling</span>(coupling)</code></pre>
+
+            <h3>API Summary</h3>
+            <table>
+                <thead>
+                    <tr><th>Function</th><th>Returns</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>compute_aperiodic_csd(decomp, fit)</code></td>
+                        <td><code>AperiodicCouplingResult</code></td>
+                        <td>Augmented CSD with virtual channels for exponent and offset</td>
+                    </tr>
+                    <tr>
+                        <td><code>aperiodic_amplitude_correlation(decomp, fit)</code></td>
+                        <td><code>(n_ch, n_freqs)</code></td>
+                        <td>Pearson correlation between exponent trajectory and wavelet amplitude</td>
+                    </tr>
+                    <tr>
+                        <td><code>aperiodic_virtual_channels(fit, decomp)</code></td>
+                        <td><code>(coeffs, nyquist)</code></td>
+                        <td>Z-scored, band-limited virtual channel coefficients</td>
+                    </tr>
+                    <tr>
+                        <td><code>effective_dof(x, y)</code></td>
+                        <td><code>float</code></td>
+                        <td>Bartlett-corrected DOF for two autocorrelated series</td>
+                    </tr>
+                    <tr>
+                        <td><code>wavelet_effective_dof(sigma_time, sfreq, n_samples)</code></td>
+                        <td><code>(n_freqs,)</code></td>
+                        <td>Frequency-dependent DOF from wavelet temporal resolution: T / (2 &times; &sigma;<sub>t</sub>)</td>
+                    </tr>
+                    <tr>
+                        <td><code>plot_aperiodic_coupling(coupling)</code></td>
+                        <td><code>Figure</code></td>
+                        <td>Amplitude correlation heatmap with Nyquist cutoff line</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Important Caveats</h3>
+            <p>
+                <strong>Circularity.</strong>
+                Aperiodic parameters are derived from wavelet power via specparam fitting. Correlating
+                them back to the same wavelet features creates inherent circularity. Surrogate testing
+                (block-permuted aperiodic trajectory) is required for any inference.
+            </p>
+            <p>
+                <strong>Effective Nyquist.</strong>
+                Coupling is only meaningful below the effective Nyquist frequency:
+                <code>sfreq / (2 &times; fit_stride)</code>. With default parameters (stride=50, sfreq=256),
+                this is ~2.5 Hz &mdash; infraslow modulations only. Content above this frequency in the
+                virtual channels is interpolation artifact and is zeroed out.
+            </p>
         </section>
 
         <!-- ============================================================ -->
@@ -902,6 +1075,10 @@ offsets = np.<span class="fn">where</span>(diff_mask == -<span class="num">1</sp
                     <div class="desc">End-to-end: signal &rarr; ReconstructionResult</div>
                 </div>
                 <div class="arch-file">
+                    <div class="name">coupling.py</div>
+                    <div class="desc">Aperiodic-oscillatory coupling: virtual-channel CSD</div>
+                </div>
+                <div class="arch-file">
                     <div class="name">diagnostics.py</div>
                     <div class="desc">Visualization helpers</div>
                 </div>
@@ -930,8 +1107,8 @@ offsets = np.<span class="fn">where</span>(diff_mask == -<span class="num">1</sp
                         <td>meeglet's octave-spaced frequencies are used natively. Power is interpolated to linear grids only for specparam fitting.</td>
                     </tr>
                     <tr>
-                        <td>Transparent energy accounting</td>
-                        <td>Energy ratios are measured and reported, not hidden. Synthesis is approximate (OLA), and we never claim sample-exact reconstruction.</td>
+                        <td>Frame multiplier synthesis</td>
+                        <td>Synthesis is a frame multiplier (Balazs 2007) with OLA reconstruction. The frame condition B/A is computed from the normalization envelope and reported in <code>result.frame_condition</code>. Values near 1.0 indicate a tight frame.</td>
                     </tr>
                     <tr>
                         <td>NaN-aware</td>
@@ -964,7 +1141,7 @@ offsets = np.<span class="fn">where</span>(diff_mask == -<span class="num">1</sp
         <!-- ============================================================ -->
         <section>
             <h2>Testing</h2>
-<pre><code>pytest tests/ -v  <span class="cm"># 69 tests</span></code></pre>
+<pre><code>pytest tests/ -v  <span class="cm"># 105 tests</span></code></pre>
 
             <h3>Run Validation</h3>
 <pre><code>python -m validation.sim_stationary

@@ -57,7 +57,7 @@ plt.rcParams.update({
 
 def fig_decomposition():
     """Generate the hero decomposition figure: original → aperiodic + periodic."""
-    print("  [1/7] Decomposition demo...")
+    print("  [1/9] Decomposition demo...")
     sfreq = 256.0
     n_samples = int(10 * sfreq)
     t = np.arange(n_samples) / sfreq
@@ -109,7 +109,7 @@ def fig_decomposition():
 
 def fig_weight_surface():
     """Generate the weight surface heatmap."""
-    print("  [2/7] Weight surface...")
+    print("  [2/9] Weight surface...")
     sfreq = 256.0
     n_samples = int(10 * sfreq)
     t = np.arange(n_samples) / sfreq
@@ -208,7 +208,7 @@ def fig_periodic_weight_surface():
 
 def fig_exponent_tracking():
     """Generate the non-stationary exponent tracking figure."""
-    print("  [3/7] Exponent tracking...")
+    print("  [4/9] Exponent tracking...")
     sfreq = 256.0
     duration = 10.0
     n_samples = int(sfreq * duration)
@@ -282,7 +282,7 @@ def fig_exponent_tracking():
 
 def fig_alpha_onoff():
     """Generate the alpha on/off tracking figure."""
-    print("  [4/7] Alpha on/off tracking...")
+    print("  [5/9] Alpha on/off tracking...")
     sfreq = 256.0
     duration = 10.0
     n_samples = int(sfreq * duration)
@@ -356,7 +356,7 @@ def fig_alpha_onoff():
 
 def fig_beta_bursts():
     """Generate the transient beta burst detection figure."""
-    print("  [5/7] Beta burst detection...")
+    print("  [6/9] Beta burst detection...")
     sfreq = 256.0
     duration = 10.0
     n_samples = int(sfreq * duration)
@@ -448,7 +448,7 @@ def fig_beta_bursts():
 
 def fig_snr_robustness():
     """Generate the SNR robustness sweep figure."""
-    print("  [6/7] SNR robustness sweep...")
+    print("  [7/9] SNR robustness sweep...")
     sfreq = 256.0
     duration = 10.0
     n_samples = int(sfreq * duration)
@@ -520,7 +520,7 @@ def fig_snr_robustness():
 
 def fig_spectral_comparison():
     """Generate PSD comparison: original vs aperiodic vs periodic."""
-    print("  [7/7] Spectral comparison...")
+    print("  [8/9] Spectral comparison...")
     sfreq = 256.0
     n_samples = int(10 * sfreq)
     t = np.arange(n_samples) / sfreq

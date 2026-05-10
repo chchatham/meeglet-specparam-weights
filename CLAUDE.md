@@ -77,6 +77,8 @@ class WaveletDecomposition:
     sfreq: float                # sampling frequency
     bw_oct: float               # bandwidth in octaves used
     delta_oct: float            # frequency spacing in octaves used
+    kernel_width: int = 5       # wavelet kernel width in sigma_time units
+    density: str = "oct"        # power density units ("oct" or "Hz")
     n_channels: int = 1         # 1 for single-channel, >1 for multi-channel
 ```
 

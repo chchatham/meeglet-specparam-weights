@@ -62,6 +62,7 @@ oscillatory_residual = result.residual
 # Check fit quality over time
 print(f"Mean r²: {result.fit.r_squared.mean():.3f}")
 print(f"Energy ratio: {result.energy_ratio:.3f}")
+print(f"Frame condition: {result.frame_condition:.3f}")  # B/A ≈ 1.0 = tight frame
 ```
 
 ## Diagnostics
@@ -72,12 +73,14 @@ from meeglet_specparam_weights import (
     plot_weight_surface,
     plot_decomposition,
     plot_parameter_trajectories,
+    plot_aperiodic_coupling,
 )
 
 plot_fit_quality(result)            # r² over time
 plot_weight_surface(result)         # 2D weight heatmap (freq × time)
 plot_decomposition(result)          # original / reconstruction / residual
 plot_parameter_trajectories(result) # exponent, offset, peak CFs over time
+# plot_aperiodic_coupling(coupling)  # coupling heatmap (see Coupling section)
 ```
 
 ## Advanced workflows
@@ -248,6 +251,40 @@ for i, (on, off) in enumerate(zip(onsets, offsets)):
           f"duration={duration_ms:.0f}ms, peak={peak_amp:.3f}")
 ```
 
+## Multi-channel support
+
+All pipeline functions accept 2D input `(n_channels, n_samples)` in addition to 1D. Each channel is processed independently.
+
+```python
+import numpy as np
+from meeglet_specparam_weights import meeglet_specparam_reconstruct
+
+# Multi-channel signal: (n_channels, n_samples)
+signal = np.stack([channel_1, channel_2, channel_3])  # (3, n_samples)
+
+result = meeglet_specparam_reconstruct(
+    signal, sfreq,
+    component="aperiodic",
+    foi_start=2, foi_end=50,
+    bw_oct=0.5,
+    fit_stride=50,
+    power_window=400,
+    freq_range=[1, 50],
+    n_iter=5,
+)
+
+# Multi-channel output shapes:
+# result.reconstruction:                (n_channels, n_samples)
+# result.residual:                      (n_channels, n_samples)
+# result.fit.aperiodic_params:          (n_channels, n_times, 2)
+# result.fit.r_squared:                 (n_channels, n_times)
+# result.fit.model_power:               (n_channels, n_freqs, n_times)
+# result.weights.weights:               (n_channels, n_freqs, n_times)
+# result.decomposition.coefficients:    (n_channels, n_freqs, n_times)
+```
+
+Single-channel input continues to produce the same shapes as before (`(n_samples,)`, `(n_times, 2)`, etc.).
+
 ## Aperiodic-oscillatory coupling
 
 The coupling module tests whether slow fluctuations in aperiodic parameters (exponent, offset) are correlated with oscillatory amplitude at specific frequencies. This is a common question in systems neuroscience — do changes in the "background" 1/f slope predict changes in alpha or beta power?
@@ -255,8 +292,10 @@ The coupling module tests whether slow fluctuations in aperiodic parameters (exp
 ```python
 from meeglet_specparam_weights import (
     wavelet_decompose, time_resolved_fit,
+    aperiodic_virtual_channels,
     compute_aperiodic_csd, aperiodic_amplitude_correlation,
-    effective_dof, plot_aperiodic_coupling,
+    effective_dof, wavelet_effective_dof,
+    plot_aperiodic_coupling,
 )
 
 # Multi-channel signal: (n_channels, n_samples)
@@ -273,10 +312,18 @@ print(f"CSD shape: {coupling.csd.shape}")           # (n_ch+2, n_ch+2, n_freqs)
 print(f"Effective Nyquist: {coupling.effective_nyquist:.1f} Hz")
 print(f"Labels: {coupling.channel_labels}")          # ['ch0', ..., 'exponent', 'offset']
 
-# Correct DOF for autocorrelated signals
+# Correct DOF for autocorrelated signals (Bartlett)
 exponent = fit.aperiodic_params[:, 1]
 amplitude_10hz = np.abs(decomp.coefficients[idx_10, :])
 n_eff = effective_dof(exponent, amplitude_10hz)
+
+# Frequency-dependent DOF from wavelet temporal resolution
+n_eff_wavelet = wavelet_effective_dof(decomp.sigma_time, decomp.sfreq, signal.shape[-1])
+# n_eff_wavelet shape: (n_freqs,) — lower freqs have fewer independent samples
+
+# Virtual channels: wavelet-decomposed exponent/offset trajectories
+virtual_coeffs, eff_nyq = aperiodic_virtual_channels(fit, decomp)
+# virtual_coeffs shape: (2, n_freqs, n_times) — z-scored, band-limited
 
 # Visualize
 plot_aperiodic_coupling(coupling)
@@ -326,7 +373,7 @@ python -m validation.sim_noise_sweep
 ## Testing
 
 ```bash
-pytest tests/ -v  # 101 tests
+pytest tests/ -v  # 105 tests
 ```
 
 ## Citations
