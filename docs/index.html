@@ -92,6 +92,20 @@
         .figure-caption strong {
             color: var(--text);
         }
+        .interpretation-note {
+            margin-top: 12px;
+            padding: 14px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent3);
+            border-radius: 6px;
+            font-size: 0.88em;
+            color: var(--text);
+            line-height: 1.55;
+        }
+        .interpretation-note strong {
+            color: var(--accent3);
+        }
 
         /* Pipeline */
         .pipeline {
@@ -328,7 +342,7 @@
                 <div class="step">
                     <div class="step-num">3</div>
                     <h4>Weight Surface</h4>
-                    <p>Compute w(f,t) = &radic;(P_model / P_empirical) for the target component (aperiodic, periodic, or full).</p>
+                    <p>Compute w(f,t) = &radic;(P<sub>model</sub> / P<sub>empirical</sub>) for the target component. This Wiener-filter ratio is the fraction of amplitude attributable to the selected component at each (f, t) point.</p>
                 </div>
                 <div class="step">
                     <div class="step-num">4</div>
@@ -364,12 +378,29 @@
                 <img src="figures/weight_surface.png" alt="2D aperiodic weight surface heatmap with fit quality over time">
                 <div class="figure-caption">
                     <strong>Aperiodic weight surface and fit quality.</strong>
-                    <em>Top:</em> The weight surface w(f, t) for the aperiodic component. The dark band near 10 Hz
-                    shows weights near zero &mdash; the method is suppressing the alpha oscillation at that
-                    frequency. Weights near 1.0 (purple) preserve the signal; weights near 0 remove it.
+                    <em>Top:</em> The weight surface w(f, t) for the aperiodic component.
+                    Each weight is the ratio of aperiodic model amplitude to total empirical amplitude:
+                    w = &radic;(P<sub>aperiodic</sub> / |Z|&sup2;). Where the 1/f model accounts for
+                    most of the observed power, w &asymp; 1 (bright); where a periodic peak dominates
+                    total power, w is small (dark). The dark band near 10 Hz reflects low weights because
+                    the alpha oscillation makes total power much larger than the aperiodic component
+                    alone &mdash; not because aperiodic power is absent at that frequency.
                     <em>Bottom:</em> Specparam fit quality (r&sup2;) over time, consistently above 0.95, indicating
                     reliable parametric fits at every time step.
                 </div>
+            </div>
+
+            <div class="interpretation-note">
+                <strong>Reading the weight surface.</strong>
+                The weight w(f,t) acts as a Wiener filter: it extracts the <em>fraction</em> of the signal
+                at each time-frequency point that belongs to the target component.
+                At frequencies without a periodic peak, total power &asymp; aperiodic power, so
+                w &asymp; 1 and the aperiodic reconstruction passes the signal through nearly unchanged.
+                At 10 Hz, the alpha oscillation makes total power much larger than the aperiodic floor,
+                so w drops &mdash; but the product w &times; Z still carries the correct level of 1/f power
+                at that frequency. The dark band means &ldquo;most power here is periodic,&rdquo; not
+                &ldquo;no aperiodic power here.&rdquo; This is confirmed by the spectral comparison above,
+                where the aperiodic reconstruction (blue) maintains a smooth 1/f slope through 10 Hz.
             </div>
 
             <div class="figure-block">
