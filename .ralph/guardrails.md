@@ -117,3 +117,73 @@ due to multiple specparam fits. Regenerate with:
 The `.gitignore` has a blanket `*.png` rule. To track figures for the GitHub Pages
 site, `!docs/figures/*.png` was added as an exception. If new image directories are
 added (e.g., `docs/screenshots/`), they will also need explicit exceptions.
+
+## Multi-Channel Constraints (Phases 10–14)
+
+### 🚧 Backward compatibility is non-negotiable
+All 69 existing tests must pass at every step. Single-channel input must produce
+identical output shapes and values. Detect dimensionality at entry points and
+branch accordingly. Do NOT change existing dataclass field shapes for single-channel.
+
+### 🚧 Multi-channel coefficients shape: (n_channels, n_freqs, n_times)
+NOT (n_freqs, n_channels, n_times) or (n_freqs, n_times, n_channels).
+Channel-first matches meeglet's (n_channels, n_samples) input convention
+and numpy broadcasting norms.
+
+### 🚧 Aperiodic trajectory effective bandwidth is limited by fit_stride
+The interpolated exponent(t) and offset(t) have effective Nyquist at
+sfreq / (2 * fit_stride). Content above this frequency is interpolation
+artifact. Virtual-channel wavelet coefficients MUST be zeroed above this
+cutoff. With default params (stride=50, sfreq=256), coupling is only
+meaningful below ~2.5 Hz — infraslow modulations.
+
+### 🚧 Circularity in aperiodic-oscillatory coupling
+Aperiodic params are derived FROM wavelet power via specparam fitting.
+Correlating them back to the same wavelet features creates spurious coupling.
+This is NOT a bug — it is an inherent property. Document prominently.
+Surrogate testing (block-permuted aperiodic trajectory) is required for
+any inference. Consider computing exponent from a freq subset and testing
+coupling against a disjoint set.
+
+### 🚧 meeglet CSD uses time-averaged outer products
+meeglet's CSD = data_conv @ data_conv.conj().T / n_valid, producing one
+matrix per frequency (not time-resolved). Our augmented CSD must match
+this convention exactly. The formula, normalization, and output namespace
+format must be compatible with meeglet's SimpleNamespace output.
+
+### 🚧 Virtual channel unit normalization
+Exponent is unitless, offset is log10(power), wavelet coefficients are in
+V²/oct. Z-score the virtual channel coefficients before computing CSD so
+the off-diagonal coupling values are interpretable as correlation-like
+quantities. Without normalization, the CSD matrix has wildly different
+scales in different blocks.
+
+### 🚧 test_rejects_2d_input must be updated
+The existing test `test_rejects_2d_input` explicitly checks that 2D input
+raises ValueError. This test must be updated (not deleted) to reflect the
+new multi-channel behavior. Keep a test that rejects 3D+ input instead.
+RESOLVED: renamed to `test_accepts_2d_input` and added `test_rejects_3d_input`.
+
+## Simplification Constraints (Phase 15)
+
+### 🚧 synthesize() returns a 3-tuple, not 2-tuple
+`synthesize()` now returns `(reconstruction, energy_ratio, frame_condition)`.
+All callers must unpack three values. If you add a new caller or test that
+calls `synthesize()`, remember the third return value.
+
+### 🚧 Unit consistency: aperiodic power must be in oct units
+`_extract_component_power_single` in weight_surface.py must multiply Hz-unit
+aperiodic power by `hz_to_oct = foi * np.log(2)` to match model_power and
+empirical |Z|² which are in µV²/oct. This was a pre-existing bug fixed in
+Phase 15. If you ever reconstruct aperiodic power from specparam parameters,
+always apply this conversion.
+
+### 🚧 conftest.py cannot be imported directly in test files
+pytest auto-loads conftest.py but it is not importable as `from conftest import`.
+Use `from tests.conftest import make_pink_noise` (the tests/ directory has
+`__init__.py`). Alternatively, use it only as a pytest fixture.
+
+### 🚧 Merged OLA functions — use compute_norm flag
+`_ola_synthesis_signal_only` no longer exists. Use
+`_ola_synthesis(coefficients, wavelets, n_samples, compute_norm=False)[0]`
+for signal-only synthesis (e.g., in iterative refinement).

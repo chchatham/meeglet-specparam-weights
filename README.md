@@ -39,7 +39,7 @@ pip install -e ".[dev]"
 import numpy as np
 from meeglet_specparam_weights import meeglet_specparam_reconstruct
 
-# Your signal: 1D numpy array, EEG-like
+# Your signal: 1D (n_samples,) or 2D (n_channels, n_samples) numpy array
 sfreq = 256.0
 t = np.arange(int(10 * sfreq)) / sfreq
 signal = make_your_signal(t)  # pink noise + oscillations
@@ -248,6 +248,44 @@ for i, (on, off) in enumerate(zip(onsets, offsets)):
           f"duration={duration_ms:.0f}ms, peak={peak_amp:.3f}")
 ```
 
+## Aperiodic-oscillatory coupling
+
+The coupling module tests whether slow fluctuations in aperiodic parameters (exponent, offset) are correlated with oscillatory amplitude at specific frequencies. This is a common question in systems neuroscience — do changes in the "background" 1/f slope predict changes in alpha or beta power?
+
+```python
+from meeglet_specparam_weights import (
+    wavelet_decompose, time_resolved_fit,
+    compute_aperiodic_csd, aperiodic_amplitude_correlation,
+    effective_dof, plot_aperiodic_coupling,
+)
+
+# Multi-channel signal: (n_channels, n_samples)
+decomp = wavelet_decompose(signal, sfreq, foi_start=2, foi_end=50)
+fit = time_resolved_fit(decomp, fit_stride=25, power_window=200)
+
+# Simple amplitude correlation: corr(exponent(t), |Z(ch, f, t)|)
+amp_corr = aperiodic_amplitude_correlation(decomp, fit)
+# amp_corr shape: (n_channels, n_freqs)
+
+# Full augmented CSD with virtual channels
+coupling = compute_aperiodic_csd(decomp, fit)
+print(f"CSD shape: {coupling.csd.shape}")           # (n_ch+2, n_ch+2, n_freqs)
+print(f"Effective Nyquist: {coupling.effective_nyquist:.1f} Hz")
+print(f"Labels: {coupling.channel_labels}")          # ['ch0', ..., 'exponent', 'offset']
+
+# Correct DOF for autocorrelated signals
+exponent = fit.aperiodic_params[:, 1]
+amplitude_10hz = np.abs(decomp.coefficients[idx_10, :])
+n_eff = effective_dof(exponent, amplitude_10hz)
+
+# Visualize
+plot_aperiodic_coupling(coupling)
+```
+
+**Important caveats:**
+- Aperiodic parameters are derived from wavelet power via specparam. Correlating them back to the same wavelet features creates inherent circularity. Surrogate testing (block-permuted aperiodic trajectory) is required for inference.
+- Coupling is only meaningful below the effective Nyquist frequency: `sfreq / (2 * fit_stride)`. With default parameters (stride=50, sfreq=256), this is ~2.5 Hz — infraslow modulations only.
+
 ## What this is not
 
 - **Not an exact reconstruction.** Wavelet synthesis via overlap-add is approximate. Energy ratios are reported; sample-exact recovery is not guaranteed. For stationary signals where exact reconstruction matters, use [specparam-fft-weights](https://github.com/chchatham/specparam-fft-weights) directly.
@@ -288,7 +326,7 @@ python -m validation.sim_noise_sweep
 ## Testing
 
 ```bash
-pytest tests/ -v  # 69 tests
+pytest tests/ -v  # 101 tests
 ```
 
 ## Citations

@@ -91,5 +91,58 @@ reconstruction idea from specparam-fft-weights.
 - All work in `src/meeglet_specparam_weights/` and `tests/`
 - Validation scripts in `validation/`
 
+### Phase 10: Multi-Channel Wavelet Decomposition ✅
+- [x] `wavelet_analysis.py`: accept `(n_channels, n_samples)` input in addition to 1D
+- [x] Output coefficients shape: `(n_channels, n_freqs, n_times)` for multi-channel
+- [x] Add `n_channels` attribute to `WaveletDecomposition`
+- [x] NaN propagation per-channel independently
+- [x] Backward compatibility: single-channel input still produces `(n_freqs, n_times)`
+- [x] Tests: multi-channel shapes, per-channel NaN independence, multi-channel freq detection
+- [x] Tests: all 20 existing single-channel tests still pass unchanged (now 21 with 3D rejection)
+
+### Phase 11: Multi-Channel Time-Resolved Fitting ✅
+- [x] `time_resolved_fit.py`: fit each channel independently
+- [x] Output `aperiodic_params` shape: `(n_channels, n_times, 2)` for multi-channel
+- [x] `model_power`: `(n_channels, n_freqs, n_times)`, `r_squared`: `(n_channels, n_times)`
+- [x] Backward compatibility: single-channel input preserves existing shapes
+- [x] Tests: multi-channel parameter recovery (different exponents per channel)
+- [x] Tests: all 12 existing single-channel tests still pass unchanged
+
+### Phase 12: Multi-Channel Weight Surface & Synthesis ✅
+- [x] `weight_surface.py`: per-channel weights, output `(n_channels, n_freqs, n_times)`
+- [x] `synthesis.py`: per-channel OLA, output `(n_channels, n_samples)`
+- [x] `pipeline.py`: accept multi-channel input, return multi-channel result
+- [x] Backward compatibility throughout — all 69 existing tests pass unchanged
+- [x] Tests: per-channel reconstruction correctness
+
+### Phase 13: Aperiodic-Oscillatory Coupling Module ✅
+- [x] New `coupling.py`: `aperiodic_virtual_channels()` — wavelet-decompose exponent/offset trajectories
+- [x] Band-limit virtual channels to effective Nyquist (`sfreq / (2 * fit_stride)`)
+- [x] Z-score virtual channel coefficients for unit normalization
+- [x] `compute_aperiodic_csd()` — augmented CSD `(n_ch+2, n_ch+2, n_freqs)` in meeglet format
+- [x] `aperiodic_amplitude_correlation()` — simple `corr(exponent, |Z|)` per channel/freq
+- [x] `effective_dof()` — autocorrelation-based DoF correction
+- [x] Tests: CSD shape, Hermitian symmetry, Nyquist enforcement
+- [x] Tests: known coupling recovery on synthetic signal
+- [x] Tests: null coupling on independent signals
+
+### Phase 14: Coupling Diagnostics & API ✅
+- [x] Export coupling functions from `__init__.py`
+- [x] `diagnostics.py`: `plot_aperiodic_coupling()` — coupling heatmap with Nyquist cutoff
+- [x] Update CLAUDE.md with `AperiodicCouplingResult` schema
+- [x] Update docs/README with coupling tutorial and worked example
+
+## Environment
+- Python 3.10+
+- `pip install numpy scipy meeglet specparam matplotlib pytest`
+- All work in `src/meeglet_specparam_weights/` and `tests/`
+- Validation scripts in `validation/`
+
+### Phase 15: Mathematical Elegance & Simplification ✅
+- [x] 15a: Wavelet-aware DOF — `wavelet_effective_dof(sigma_time, sfreq, n_samples)` in coupling.py
+- [x] 15b: Frame bounds diagnostic — `frame_condition` (B/A) computed in synthesis, surfaced in `ReconstructionResult`
+- [x] 15c: Deduplicate test fixtures — `make_pink_noise()` in conftest.py, replaced 6+ inline copies
+- [x] 15d: Document frame multiplier and Wiener filter connections in module docstrings
+
 ## Current Focus
-All phases complete. Advanced workflows tutorial added to docs and README. Figures committed and deployed.
+All phases (1–15) complete. 105 tests passing.

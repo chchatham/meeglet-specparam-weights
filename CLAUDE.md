@@ -41,6 +41,7 @@ src/meeglet_specparam_weights/
 ├── weight_surface.py            # Compute w(f,t) = sqrt(P_model(f,t) / |Z(f,t)|²)
 ├── synthesis.py                 # Weighted coefficients → time-domain signal via OLA
 ├── pipeline.py                  # End-to-end: signal in → ReconstructionResult out
+├── coupling.py                  # Aperiodic-oscillatory coupling: virtual-channel CSD
 └── diagnostics.py               # Fit quality, energy accounting, visualization helpers
 
 tests/
@@ -50,6 +51,7 @@ tests/
 ├── test_synthesis.py            # OLA reconstruction accuracy, energy preservation
 ├── test_pipeline.py             # End-to-end on synthetic signals with known ground truth
 ├── test_diagnostics.py          # Plotting smoke tests, metric calculations
+├── test_coupling.py             # CSD shape, Hermitian, Nyquist, coupling recovery
 └── conftest.py                  # Shared fixtures: synthetic signals, standard wavelet configs
 
 validation/
@@ -63,11 +65,11 @@ validation/
 
 ## Key Schemas / Interfaces
 
-### WaveletDecomposition (wavelet_analysis → weight_surface, synthesis)
+### WaveletDecomposition (wavelet_analysis → weight_surface, synthesis, coupling)
 ```python
 @dataclass
 class WaveletDecomposition:
-    coefficients: np.ndarray    # complex, shape (n_freqs, n_times)
+    coefficients: np.ndarray    # complex, (n_freqs, n_times) or (n_channels, n_freqs, n_times)
     foi: np.ndarray             # center frequencies, shape (n_freqs,)
     sigma_time: np.ndarray      # temporal std per freq, shape (n_freqs,)
     sigma_freq: np.ndarray      # spectral std per freq, shape (n_freqs,)
@@ -75,26 +77,28 @@ class WaveletDecomposition:
     sfreq: float                # sampling frequency
     bw_oct: float               # bandwidth in octaves used
     delta_oct: float            # frequency spacing in octaves used
+    n_channels: int = 1         # 1 for single-channel, >1 for multi-channel
 ```
 
-### TimeResolvedFit (time_resolved_fit → weight_surface)
+### TimeResolvedFit (time_resolved_fit → weight_surface, coupling)
 ```python
 @dataclass
 class TimeResolvedFit:
-    aperiodic_params: np.ndarray   # shape (n_times, 2) — [offset, exponent] per time
-    peak_params: list[np.ndarray]  # len n_times, each (n_peaks, 3) — [cf, amp, bw]
-    model_power: np.ndarray        # shape (n_freqs, n_times) — reconstructed model PSD
-    r_squared: np.ndarray          # shape (n_times,) — fit quality per time step
+    aperiodic_params: np.ndarray   # (n_times, 2) or (n_channels, n_times, 2)
+    peak_params: list              # list[ndarray] or list[list[ndarray]]
+    model_power: np.ndarray        # (n_freqs, n_times) or (n_channels, n_freqs, n_times)
+    r_squared: np.ndarray          # (n_times,) or (n_channels, n_times)
     foi: np.ndarray                # center frequencies used for fitting
     times: np.ndarray              # time points
     fit_stride: int                # stride in samples between fits
+    n_channels: int = 1
 ```
 
 ### WeightSurface (weight_surface → synthesis)
 ```python
 @dataclass
 class WeightSurface:
-    weights: np.ndarray         # real, non-negative, shape (n_freqs, n_times)
+    weights: np.ndarray         # (n_freqs, n_times) or (n_channels, n_freqs, n_times)
     component: str              # 'full', 'aperiodic', 'periodic'
     eps: float                  # floor used
     max_weight: float           # clamp used
@@ -104,12 +108,25 @@ class WeightSurface:
 ```python
 @dataclass
 class ReconstructionResult:
-    reconstruction: np.ndarray  # time-domain signal, shape (n_samples,)
-    residual: np.ndarray        # original - reconstruction, shape (n_samples,)
+    reconstruction: np.ndarray  # (n_samples,) or (n_channels, n_samples)
+    residual: np.ndarray        # (n_samples,) or (n_channels, n_samples)
     fit: TimeResolvedFit        # the underlying parametric fit
     weights: WeightSurface      # the weight surface applied
     energy_ratio: float         # ||reconstruction||² / ||original||² (sanity check)
     decomposition: WaveletDecomposition  # the wavelet decomposition used
+    frame_condition: float      # B/A of the frame operator; 1.0 = tight frame
+```
+
+### AperiodicCouplingResult (coupling output)
+```python
+@dataclass
+class AperiodicCouplingResult:
+    csd: np.ndarray              # complex, (n_ch+2, n_ch+2, n_freqs) — augmented CSD
+    amplitude_correlation: np.ndarray  # (n_channels, n_freqs) — corr(exponent, |Z|)
+    virtual_coefficients: np.ndarray   # complex, (2, n_freqs, n_times) — z-scored
+    effective_nyquist: float     # Hz — coupling only meaningful below this
+    foi: np.ndarray              # center frequencies
+    channel_labels: list[str]    # ['ch0', ..., 'exponent', 'offset']
 ```
 
 ## Environment
@@ -145,9 +162,10 @@ class ReconstructionResult:
    meeglet's octave-spaced frequencies are used throughout. No interpolation to
    linear grids. specparam fits on this log grid directly.
 
-5. **Synthesis uses overlap-add with dual-frame wavelets.**
-   Reconstruction quality is bounded by the frame properties of the wavelet family.
-   We measure and report energy ratios; we do not claim sample-exact reconstruction.
+5. **Synthesis is a frame multiplier (Balazs 2007) with OLA reconstruction.**
+   Reconstruction quality is bounded by the frame condition number B/A, computed
+   from the normalization envelope and reported in `ReconstructionResult.frame_condition`.
+   Values near 1.0 indicate a tight frame; we also report energy ratios.
 
 6. **NaN-awareness from meeglet propagates everywhere.**
    Bad segments marked NaN in the input are handled by meeglet's convolution.

@@ -7,6 +7,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from tests.conftest import make_pink_noise
 from meeglet_specparam_weights.wavelet_analysis import wavelet_decompose
 from meeglet_specparam_weights.time_resolved_fit import time_resolved_fit
 from meeglet_specparam_weights.weight_surface import (
@@ -18,15 +19,7 @@ from meeglet_specparam_weights.weight_surface import (
 @pytest.fixture
 def pink_result(sfreq):
     """Decomposition and fit of pure pink noise."""
-    rng = np.random.default_rng(42)
-    n_samples = int(4 * sfreq)
-    freqs = np.fft.rfftfreq(n_samples, d=1.0 / sfreq)
-    freqs[0] = 1.0
-    amplitudes = 1.0 / freqs ** 0.75
-    phases = rng.uniform(0, 2 * np.pi, len(freqs))
-    spectrum = amplitudes * np.exp(1j * phases)
-    spectrum[0] = 0.0
-    signal = np.fft.irfft(spectrum, n=n_samples)
+    signal = make_pink_noise(int(4 * sfreq), sfreq, exponent_half=0.75)
     decomp = wavelet_decompose(signal, sfreq, foi_start=2, foi_end=32)
     fit = time_resolved_fit(decomp, fit_stride=50)
     return decomp, fit
@@ -35,15 +28,8 @@ def pink_result(sfreq):
 @pytest.fixture
 def pink_alpha_result(sfreq):
     """Decomposition and fit of pink noise + 10 Hz sine."""
-    rng = np.random.default_rng(42)
     n_samples = int(4 * sfreq)
-    freqs = np.fft.rfftfreq(n_samples, d=1.0 / sfreq)
-    freqs[0] = 1.0
-    amplitudes = 1.0 / freqs ** 0.75
-    phases = rng.uniform(0, 2 * np.pi, len(freqs))
-    spectrum = amplitudes * np.exp(1j * phases)
-    spectrum[0] = 0.0
-    signal = np.fft.irfft(spectrum, n=n_samples)
+    signal = make_pink_noise(n_samples, sfreq, exponent_half=0.75)
     t = np.arange(n_samples) / sfreq
     signal += 3.0 * np.sin(2 * np.pi * 10 * t)
     decomp = wavelet_decompose(signal, sfreq, foi_start=2, foi_end=32)
@@ -169,3 +155,30 @@ class TestNaNHandling:
         nan_mask = np.isnan(decomp.coefficients)
         if np.any(nan_mask):
             assert np.all(ws.weights[nan_mask] == 0.0)
+
+
+class TestMultiChannel:
+    """Verify multi-channel weight surface computation."""
+
+    @pytest.fixture
+    def multichannel_result(self, sfreq):
+        n_samples = int(4 * sfreq)
+        signal_2d = np.stack([
+            make_pink_noise(n_samples, sfreq, exponent_half=0.75, seed=42),
+            make_pink_noise(n_samples, sfreq, exponent_half=1.0, seed=43),
+        ])
+        decomp = wavelet_decompose(signal_2d, sfreq, foi_start=2, foi_end=32)
+        fit = time_resolved_fit(decomp, fit_stride=50)
+        return decomp, fit
+
+    def test_multichannel_weight_shape(self, multichannel_result):
+        decomp, fit = multichannel_result
+        ws = compute_weight_surface(decomp, fit, component="aperiodic")
+        assert ws.weights.shape == decomp.coefficients.shape
+
+    def test_multichannel_weight_properties(self, multichannel_result):
+        decomp, fit = multichannel_result
+        ws = compute_weight_surface(decomp, fit, component="aperiodic")
+        assert np.all(ws.weights >= 0)
+        assert not np.any(np.isnan(ws.weights))
+        assert np.all(ws.weights <= 100.0)

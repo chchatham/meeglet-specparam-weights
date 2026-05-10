@@ -12,12 +12,13 @@ from .synthesis import synthesize
 
 @dataclass
 class ReconstructionResult:
-    reconstruction: np.ndarray  # time-domain signal, shape (n_samples,)
-    residual: np.ndarray  # original - reconstruction, shape (n_samples,)
+    reconstruction: np.ndarray  # (n_samples,) or (n_channels, n_samples)
+    residual: np.ndarray  # (n_samples,) or (n_channels, n_samples)
     fit: TimeResolvedFit
     weights: WeightSurface
     energy_ratio: float
     decomposition: WaveletDecomposition
+    frame_condition: float = 1.0  # B/A of the frame operator; 1.0 = tight frame
 
 
 def meeglet_specparam_reconstruct(
@@ -46,7 +47,7 @@ def meeglet_specparam_reconstruct(
     Parameters
     ----------
     signal : np.ndarray
-        1D input signal.
+        1D (n_samples,) or 2D (n_channels, n_samples) input signal.
     sfreq : float
         Sampling frequency in Hz.
     component : str
@@ -102,7 +103,7 @@ def meeglet_specparam_reconstruct(
         max_weight=max_weight,
     )
 
-    reconstruction, energy_ratio = synthesize(
+    reconstruction, energy_ratio, frame_condition = synthesize(
         decomposition, weights,
         edge_taper=edge_taper,
         n_iter=n_iter,
@@ -117,4 +118,5 @@ def meeglet_specparam_reconstruct(
         weights=weights,
         energy_ratio=energy_ratio,
         decomposition=decomposition,
+        frame_condition=frame_condition,
     )

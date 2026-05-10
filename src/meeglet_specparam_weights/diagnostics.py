@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 from .pipeline import ReconstructionResult
+from .coupling import AperiodicCouplingResult
 
 
 def plot_fit_quality(result: ReconstructionResult, ax: plt.Axes | None = None) -> Figure:
@@ -123,5 +124,52 @@ def plot_parameter_trajectories(result: ReconstructionResult) -> Figure:
         axes[2].set_ylabel("Peak CF (Hz)")
 
     axes[-1].set_xlabel("Time (s)")
+    fig.tight_layout()
+    return fig
+
+
+def plot_aperiodic_coupling(
+    coupling_result: AperiodicCouplingResult,
+    ax: plt.Axes | None = None,
+) -> Figure:
+    """Plot amplitude correlation heatmap with Nyquist cutoff line.
+
+    Shows corr(exponent(t), |Z(ch, f, t)|) for each channel and frequency,
+    with a vertical line at the effective Nyquist frequency above which
+    coupling is not meaningful.
+    """
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 4))
+    else:
+        fig = ax.get_figure()
+
+    corr = coupling_result.amplitude_correlation
+    foi = coupling_result.foi
+    nyquist = coupling_result.effective_nyquist
+
+    if corr.ndim == 1:
+        corr = corr[np.newaxis, :]
+
+    n_ch = corr.shape[0]
+    ch_labels = coupling_result.channel_labels[:n_ch]
+
+    im = ax.imshow(
+        corr, aspect="auto", cmap="RdBu_r", vmin=-1, vmax=1,
+        extent=[np.log10(foi[0]), np.log10(foi[-1]), n_ch - 0.5, -0.5],
+        interpolation="nearest",
+    )
+    ax.axvline(np.log10(nyquist), color="yellow", linestyle="--", linewidth=1.5,
+               label=f"Nyquist = {nyquist:.1f} Hz")
+    ax.set_xlabel("Frequency (Hz)")
+    ax.set_ylabel("Channel")
+    ax.set_yticks(np.arange(n_ch))
+    ax.set_yticklabels(ch_labels)
+    tick_freqs = [f for f in [1, 2, 5, 10, 20, 50] if foi[0] <= f <= foi[-1]]
+    ax.set_xticks([np.log10(f) for f in tick_freqs])
+    ax.set_xticklabels([str(f) for f in tick_freqs])
+    ax.set_title("Aperiodic-oscillatory amplitude correlation")
+    ax.legend(loc="upper right", fontsize=8)
+    plt.colorbar(im, ax=ax, label="corr(exponent, amplitude)")
     fig.tight_layout()
     return fig

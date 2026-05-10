@@ -7,6 +7,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from tests.conftest import make_pink_noise
 from meeglet_specparam_weights.wavelet_analysis import wavelet_decompose
 from meeglet_specparam_weights.time_resolved_fit import TimeResolvedFit, time_resolved_fit
 
@@ -14,30 +15,15 @@ from meeglet_specparam_weights.time_resolved_fit import TimeResolvedFit, time_re
 @pytest.fixture
 def pink_decomposition(sfreq):
     """Wavelet decomposition of pink noise (exponent ~1.5)."""
-    rng = np.random.default_rng(42)
-    n_samples = int(4 * sfreq)
-    freqs = np.fft.rfftfreq(n_samples, d=1.0 / sfreq)
-    freqs[0] = 1.0
-    amplitudes = 1.0 / freqs ** 0.75  # exponent=1.5 in power: |1/f^0.75|^2 = 1/f^1.5
-    phases = rng.uniform(0, 2 * np.pi, len(freqs))
-    spectrum = amplitudes * np.exp(1j * phases)
-    spectrum[0] = 0.0
-    signal = np.fft.irfft(spectrum, n=n_samples)
+    signal = make_pink_noise(int(4 * sfreq), sfreq, exponent_half=0.75)
     return wavelet_decompose(signal, sfreq, foi_start=2, foi_end=32)
 
 
 @pytest.fixture
 def pink_alpha_decomposition(sfreq):
     """Wavelet decomposition of pink noise + 10 Hz sine."""
-    rng = np.random.default_rng(42)
     n_samples = int(4 * sfreq)
-    freqs = np.fft.rfftfreq(n_samples, d=1.0 / sfreq)
-    freqs[0] = 1.0
-    amplitudes = 1.0 / freqs ** 0.75
-    phases = rng.uniform(0, 2 * np.pi, len(freqs))
-    spectrum = amplitudes * np.exp(1j * phases)
-    spectrum[0] = 0.0
-    signal = np.fft.irfft(spectrum, n=n_samples)
+    signal = make_pink_noise(n_samples, sfreq, exponent_half=0.75)
     t = np.arange(n_samples) / sfreq
     signal += 3.0 * np.sin(2 * np.pi * 10 * t)
     return wavelet_decompose(signal, sfreq, foi_start=2, foi_end=32)
@@ -136,15 +122,8 @@ class TestStride:
 
     def test_stride_50_vs_stride_100_consistent(self, sfreq):
         """Aperiodic params from different strides should be similar at interior points."""
-        rng = np.random.default_rng(42)
         n_samples = int(2 * sfreq)
-        freqs = np.fft.rfftfreq(n_samples, d=1.0 / sfreq)
-        freqs[0] = 1.0
-        amplitudes = 1.0 / freqs ** 0.75
-        phases = rng.uniform(0, 2 * np.pi, len(freqs))
-        spectrum = amplitudes * np.exp(1j * phases)
-        spectrum[0] = 0.0
-        signal = np.fft.irfft(spectrum, n=n_samples)
+        signal = make_pink_noise(n_samples, sfreq, exponent_half=0.75)
         decomp = wavelet_decompose(signal, sfreq, foi_start=4, foi_end=30)
 
         result_s50 = time_resolved_fit(decomp, fit_stride=50)
@@ -185,3 +164,56 @@ class TestSmoothing:
             assert var_smooth <= var_raw * 1.1, (
                 f"Smoothed variance ({var_smooth:.4f}) should be <= raw ({var_raw:.4f})"
             )
+
+
+class TestMultiChannel:
+    """Verify multi-channel time-resolved fitting."""
+
+    @pytest.fixture
+    def multichannel_decomposition(self, sfreq):
+        n_samples = int(4 * sfreq)
+        signal_2d = np.stack([
+            make_pink_noise(n_samples, sfreq, exponent_half=0.75, seed=42),
+            make_pink_noise(n_samples, sfreq, exponent_half=1.0, seed=43),
+        ])
+        return wavelet_decompose(signal_2d, sfreq, foi_start=2, foi_end=32)
+
+    def test_multichannel_output_shapes(self, multichannel_decomposition):
+        result = time_resolved_fit(multichannel_decomposition, fit_stride=50)
+        n_ch = 2
+        n_times = len(multichannel_decomposition.times)
+        n_freqs = len(multichannel_decomposition.foi)
+
+        assert result.aperiodic_params.shape == (n_ch, n_times, 2)
+        assert result.model_power.shape == (n_ch, n_freqs, n_times)
+        assert result.r_squared.shape == (n_ch, n_times)
+        assert result.n_channels == n_ch
+
+    def test_multichannel_peak_params_structure(self, multichannel_decomposition):
+        result = time_resolved_fit(multichannel_decomposition, fit_stride=50)
+        n_times = len(multichannel_decomposition.times)
+        assert len(result.peak_params) == 2
+        assert len(result.peak_params[0]) == n_times
+        assert len(result.peak_params[1]) == n_times
+
+    def test_multichannel_different_exponents(self, multichannel_decomposition):
+        result = time_resolved_fit(multichannel_decomposition, fit_stride=50)
+        n_times = result.aperiodic_params.shape[1]
+        interior = slice(n_times // 4, 3 * n_times // 4)
+
+        exp_ch0 = result.aperiodic_params[0, interior, 1]
+        exp_ch1 = result.aperiodic_params[1, interior, 1]
+        valid = ~np.isnan(exp_ch0) & ~np.isnan(exp_ch1)
+        if np.sum(valid) > 3:
+            mean_ch0 = np.mean(exp_ch0[valid])
+            mean_ch1 = np.mean(exp_ch1[valid])
+            assert mean_ch0 != pytest.approx(mean_ch1, abs=0.01), (
+                "Different input exponents should yield different fitted exponents"
+            )
+
+    def test_single_channel_backward_compat(self, pink_decomposition):
+        result = time_resolved_fit(pink_decomposition, fit_stride=50)
+        assert result.aperiodic_params.ndim == 2
+        assert result.model_power.ndim == 2
+        assert result.r_squared.ndim == 1
+        assert result.n_channels == 1

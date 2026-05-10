@@ -11,13 +11,14 @@ from .wavelet_analysis import WaveletDecomposition
 
 @dataclass
 class TimeResolvedFit:
-    aperiodic_params: np.ndarray  # shape (n_times, 2) — [offset, exponent] per time
-    peak_params: list[np.ndarray]  # len n_times, each (n_peaks, 3) — [cf, pw, bw]
-    model_power: np.ndarray  # shape (n_freqs, n_times) — reconstructed model PSD (linear)
-    r_squared: np.ndarray  # shape (n_times,) — fit quality per time step
+    aperiodic_params: np.ndarray  # (n_times, 2) or (n_channels, n_times, 2)
+    peak_params: list  # list[ndarray] or list[list[ndarray]] for multi-channel
+    model_power: np.ndarray  # (n_freqs, n_times) or (n_channels, n_freqs, n_times)
+    r_squared: np.ndarray  # (n_times,) or (n_channels, n_times)
     foi: np.ndarray  # center frequencies used for fitting
     times: np.ndarray  # time points (at fitted positions)
     fit_stride: int  # stride in samples between fits
+    n_channels: int = 1
 
 
 def time_resolved_fit(
@@ -34,9 +35,8 @@ def time_resolved_fit(
 ) -> TimeResolvedFit:
     """Fit specparam to time-averaged wavelet power at strided positions.
 
-    Power is averaged over a window and interpolated to a linearly-spaced
-    frequency grid for specparam fitting. Model parameters are then evaluated
-    on the original log-spaced frequency grid for downstream weight computation.
+    Accepts single-channel (2D coefficients) or multi-channel (3D coefficients).
+    For multi-channel, each channel is fitted independently.
 
     Parameters
     ----------
@@ -57,7 +57,14 @@ def time_resolved_fit(
     """
     Z = decomposition.coefficients
     foi = decomposition.foi
-    n_freqs, n_times = Z.shape
+    multichannel = Z.ndim == 3
+
+    if multichannel:
+        n_channels = Z.shape[0]
+        n_times = Z.shape[2]
+    else:
+        n_channels = 1
+        n_times = Z.shape[1]
 
     if freq_range is None:
         freq_range = [foi[0], foi[-1]]
@@ -65,6 +72,56 @@ def time_resolved_fit(
     if power_window is None:
         power_window = max(fit_stride * 2, 10)
 
+    fit_kwargs = dict(
+        foi=foi, n_times=n_times, fit_stride=fit_stride,
+        power_window=power_window, smooth_sigma=smooth_sigma,
+        freq_range=freq_range, n_freqs_linear=n_freqs_linear,
+        peak_width_limits=peak_width_limits, max_n_peaks=max_n_peaks,
+        min_peak_height=min_peak_height, aperiodic_mode=aperiodic_mode,
+    )
+
+    if not multichannel:
+        ap, pk, mp, r2 = _fit_single_channel(Z, **fit_kwargs)
+        return TimeResolvedFit(
+            aperiodic_params=ap, peak_params=pk, model_power=mp,
+            r_squared=r2, foi=foi, times=decomposition.times,
+            fit_stride=fit_stride, n_channels=1,
+        )
+
+    all_ap = np.empty((n_channels, n_times, 2))
+    all_mp = np.empty((n_channels, len(foi), n_times))
+    all_r2 = np.empty((n_channels, n_times))
+    all_pk: list[list[np.ndarray]] = []
+
+    for ch in range(n_channels):
+        ap, pk, mp, r2 = _fit_single_channel(Z[ch], **fit_kwargs)
+        all_ap[ch] = ap
+        all_mp[ch] = mp
+        all_r2[ch] = r2
+        all_pk.append(pk)
+
+    return TimeResolvedFit(
+        aperiodic_params=all_ap, peak_params=all_pk, model_power=all_mp,
+        r_squared=all_r2, foi=foi, times=decomposition.times,
+        fit_stride=fit_stride, n_channels=n_channels,
+    )
+
+
+def _fit_single_channel(
+    Z_ch: np.ndarray,
+    foi: np.ndarray,
+    n_times: int,
+    fit_stride: int,
+    power_window: int,
+    smooth_sigma: float | None,
+    freq_range: list[float],
+    n_freqs_linear: int,
+    peak_width_limits: tuple[float, float],
+    max_n_peaks: int,
+    min_peak_height: float,
+    aperiodic_mode: str,
+) -> tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray]:
+    """Fit a single channel and return (aperiodic_all, peak_params_all, model_power, r_squared)."""
     linear_freqs = np.linspace(freq_range[0], freq_range[1], n_freqs_linear)
 
     fit_indices = np.arange(0, n_times, fit_stride)
@@ -82,7 +139,7 @@ def time_resolved_fit(
         verbose=False,
     )
 
-    instantaneous_power = np.abs(Z) ** 2
+    instantaneous_power = np.abs(Z_ch) ** 2
 
     for i, t_idx in enumerate(fit_indices):
         half_win = power_window // 2
@@ -106,7 +163,6 @@ def time_resolved_fit(
 
         avg_power = np.maximum(avg_power, 1e-30)
 
-        # Convert from µV²/oct to µV²/Hz for specparam fitting
         avg_power_hz = avg_power / (foi * np.log(2))
 
         power_on_linear = np.maximum(
@@ -125,7 +181,6 @@ def time_resolved_fit(
 
         r2 = fm.results.metrics.results["gof_rsquared"]
         ap = fm.results.params.aperiodic.params
-        # Reject poor fits or physically implausible exponents
         if r2 < 0.5 or ap[1] < -0.5 or ap[1] > 10.0:
             peak_params_fitted.append(np.empty((0, 3)))
             continue
@@ -155,15 +210,7 @@ def time_resolved_fit(
         aperiodic_all, peak_params_all, foi, n_times,
     )
 
-    return TimeResolvedFit(
-        aperiodic_params=aperiodic_all,
-        peak_params=peak_params_all,
-        model_power=model_power,
-        r_squared=r_squared_all,
-        foi=foi,
-        times=decomposition.times,
-        fit_stride=fit_stride,
-    )
+    return aperiodic_all, peak_params_all, model_power, r_squared_all
 
 
 def _reconstruct_model_power(
@@ -182,21 +229,22 @@ def _reconstruct_model_power(
     log_foi = np.log10(foi)
     hz_to_oct = foi * np.log(2)
 
-    for t in range(n_times):
-        if np.isnan(aperiodic_all[t, 0]):
-            continue
+    valid = ~np.isnan(aperiodic_all[:, 0])
+    if np.any(valid):
+        offsets = aperiodic_all[valid, 0]
+        exponents = aperiodic_all[valid, 1]
+        ap_hz = 10.0 ** (offsets[np.newaxis, :] - exponents[np.newaxis, :] * log_foi[:, np.newaxis])
 
-        offset, exponent = aperiodic_all[t]
-        ap_hz = aperiodic_power_hz(offset, exponent, log_foi)
+        pk_log = np.zeros((n_freqs, int(np.sum(valid))))
+        valid_indices = np.where(valid)[0]
+        for i, t in enumerate(valid_indices):
+            pk = peak_params_all[t]
+            if len(pk) > 0:
+                fit_pk = _converted_to_fit_bw(pk)
+                for cf, pw, bw in fit_pk:
+                    pk_log[:, i] += pw * np.exp(-(foi - cf) ** 2 / (2 * bw ** 2))
 
-        pk_log = np.zeros(n_freqs)
-        pk = peak_params_all[t]
-        if len(pk) > 0:
-            fit_pk = _converted_to_fit_bw(pk)
-            for cf, pw, bw in fit_pk:
-                pk_log += pw * np.exp(-(foi - cf) ** 2 / (2 * bw ** 2))
-
-        model_power[:, t] = ap_hz * (10.0 ** pk_log) * hz_to_oct
+        model_power[:, valid] = ap_hz * (10.0 ** pk_log) * hz_to_oct[:, np.newaxis]
 
     return model_power
 

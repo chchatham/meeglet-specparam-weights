@@ -7,6 +7,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from tests.conftest import make_pink_noise
 from meeglet_specparam_weights.pipeline import (
     ReconstructionResult,
     meeglet_specparam_reconstruct,
@@ -16,15 +17,8 @@ from meeglet_specparam_weights.pipeline import (
 @pytest.fixture
 def pink_plus_alpha_signal(sfreq):
     """Pink noise + 10 Hz sine, with references."""
-    rng = np.random.default_rng(42)
     n_samples = int(4 * sfreq)
-    freqs = np.fft.rfftfreq(n_samples, d=1.0 / sfreq)
-    freqs[0] = 1.0
-    amplitudes = 1.0 / freqs ** 0.75
-    phases = rng.uniform(0, 2 * np.pi, len(freqs))
-    spectrum = amplitudes * np.exp(1j * phases)
-    spectrum[0] = 0.0
-    pink = np.fft.irfft(spectrum, n=n_samples)
+    pink = make_pink_noise(n_samples, sfreq, exponent_half=0.75)
     t = np.arange(n_samples) / sfreq
     alpha = 3.0 * np.sin(2 * np.pi * 10 * t)
     return pink + alpha, pink, alpha
@@ -156,4 +150,34 @@ class TestPeriodicReconstruction:
         assert power_band_10 > power_band_25, (
             f"Periodic recon should have 10 Hz peak: "
             f"10Hz={power_band_10:.2f}, 25Hz={power_band_25:.2f}"
+        )
+
+
+class TestMultiChannelPipeline:
+    """Verify multi-channel end-to-end pipeline."""
+
+    def test_multichannel_output_shapes(self, sfreq):
+        rng = np.random.default_rng(42)
+        n_samples = int(4 * sfreq)
+        signal_2d = rng.standard_normal((2, n_samples))
+
+        result = meeglet_specparam_reconstruct(
+            signal_2d, sfreq, component="aperiodic", fit_stride=50
+        )
+
+        assert result.reconstruction.shape == (2, n_samples)
+        assert result.residual.shape == (2, n_samples)
+        assert result.energy_ratio > 0
+
+    def test_multichannel_residual_equals_diff(self, sfreq):
+        rng = np.random.default_rng(42)
+        n_samples = int(4 * sfreq)
+        signal_2d = rng.standard_normal((2, n_samples))
+
+        result = meeglet_specparam_reconstruct(
+            signal_2d, sfreq, component="aperiodic", fit_stride=50
+        )
+
+        np.testing.assert_allclose(
+            result.residual, signal_2d - result.reconstruction, atol=1e-10
         )

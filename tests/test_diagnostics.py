@@ -12,29 +12,28 @@ import numpy as np
 import pytest
 from matplotlib.figure import Figure
 
+from tests.conftest import make_pink_noise
 from meeglet_specparam_weights import (
     meeglet_specparam_reconstruct,
     plot_fit_quality,
     plot_weight_surface,
     plot_decomposition,
     plot_parameter_trajectories,
+    plot_aperiodic_coupling,
 )
+from meeglet_specparam_weights.wavelet_analysis import wavelet_decompose
+from meeglet_specparam_weights.time_resolved_fit import time_resolved_fit
+from meeglet_specparam_weights.coupling import compute_aperiodic_csd
 
 
 @pytest.fixture(scope="module")
 def result():
     """Run pipeline once for all diagnostics tests."""
-    rng = np.random.default_rng(42)
     sfreq = 256.0
     n_samples = int(4 * sfreq)
     t = np.arange(n_samples) / sfreq
 
-    freqs = np.fft.rfftfreq(n_samples, d=1.0 / sfreq)
-    freqs[0] = 1.0
-    white = rng.standard_normal(len(freqs)) + 1j * rng.standard_normal(len(freqs))
-    white *= 1.0 / np.sqrt(freqs)
-    white[0] = 0
-    pink = np.fft.irfft(white, n=n_samples)
+    pink = make_pink_noise(n_samples, sfreq, exponent_half=0.5)
     signal = pink + 2.0 * np.sin(2 * np.pi * 10 * t)
 
     return meeglet_specparam_reconstruct(
@@ -87,3 +86,10 @@ def test_plot_weight_surface_with_ax(result):
     fig, ax = plt.subplots()
     returned_fig = plot_weight_surface(result, ax=ax)
     assert returned_fig is fig
+
+
+def test_plot_aperiodic_coupling(result):
+    coupling = compute_aperiodic_csd(result.decomposition, result.fit)
+    fig = plot_aperiodic_coupling(coupling)
+    assert isinstance(fig, Figure)
+    assert len(fig.axes) >= 1

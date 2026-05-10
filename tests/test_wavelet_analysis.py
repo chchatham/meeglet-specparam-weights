@@ -62,10 +62,17 @@ class TestWaveletDecomposeShapes:
         result = wavelet_decompose(pink_noise, sfreq, bw_oct=0.5)
         assert result.delta_oct == 0.5 / 4.0  # default is bw_oct / 4
 
-    def test_rejects_2d_input(self, sfreq):
-        signal_2d = np.random.randn(2, 100)
-        with pytest.raises(ValueError, match="1D"):
-            wavelet_decompose(signal_2d, sfreq)
+    def test_accepts_2d_input(self, sfreq):
+        signal_2d = np.random.default_rng(42).standard_normal((3, int(4 * sfreq)))
+        result = wavelet_decompose(signal_2d, sfreq)
+        n_freqs = len(result.foi)
+        assert result.coefficients.shape == (3, n_freqs, signal_2d.shape[1])
+        assert result.n_channels == 3
+
+    def test_rejects_3d_input(self, sfreq):
+        signal_3d = np.random.randn(2, 3, 100)
+        with pytest.raises(ValueError, match="1D or 2D"):
+            wavelet_decompose(signal_3d, sfreq)
 
 
 class TestNaNPropagation:
@@ -199,3 +206,65 @@ class TestPhasePreservation:
         assert abs(median_rate - expected_rate) < expected_rate * 0.15, (
             f"Phase rate {median_rate:.1f} rad/s, expected {expected_rate:.1f}"
         )
+
+
+class TestMultiChannel:
+    """Verify multi-channel wavelet decomposition."""
+
+    def test_multichannel_shape(self, sfreq):
+        n_ch, n_samples = 4, int(4 * sfreq)
+        signal = np.random.default_rng(42).standard_normal((n_ch, n_samples))
+        result = wavelet_decompose(signal, sfreq)
+        n_freqs = len(result.foi)
+        assert result.coefficients.shape == (n_ch, n_freqs, n_samples)
+        assert result.n_channels == n_ch
+
+    def test_single_channel_backward_compat(self, pink_noise, sfreq):
+        result = wavelet_decompose(pink_noise, sfreq)
+        assert result.coefficients.ndim == 2
+        assert result.n_channels == 1
+
+    def test_multichannel_matches_single(self, sfreq):
+        rng = np.random.default_rng(99)
+        n_samples = int(4 * sfreq)
+        ch0 = rng.standard_normal(n_samples)
+        ch1 = rng.standard_normal(n_samples)
+
+        result_multi = wavelet_decompose(np.stack([ch0, ch1]), sfreq)
+        result_ch0 = wavelet_decompose(ch0, sfreq)
+        result_ch1 = wavelet_decompose(ch1, sfreq)
+
+        np.testing.assert_array_almost_equal(result_multi.coefficients[0], result_ch0.coefficients)
+        np.testing.assert_array_almost_equal(result_multi.coefficients[1], result_ch1.coefficients)
+
+    def test_per_channel_nan_independence(self, sfreq):
+        n_samples = int(4 * sfreq)
+        rng = np.random.default_rng(42)
+        signal = rng.standard_normal((2, n_samples))
+        signal[0, 500] = np.nan  # NaN only in channel 0
+
+        result = wavelet_decompose(signal, sfreq)
+
+        assert np.any(np.isnan(result.coefficients[0]))
+        assert not np.any(np.isnan(result.coefficients[1]))
+
+    def test_multichannel_freq_detection(self, sfreq):
+        n_samples = int(4 * sfreq)
+        t = np.arange(n_samples) / sfreq
+        ch_10hz = np.sin(2 * np.pi * 10 * t)
+        ch_20hz = np.sin(2 * np.pi * 20 * t)
+        signal = np.stack([ch_10hz, ch_20hz])
+
+        result = wavelet_decompose(signal, sfreq, foi_start=2, foi_end=32)
+        power = np.nanmean(np.abs(result.coefficients) ** 2, axis=2)
+
+        peak_ch0 = result.foi[np.argmax(power[0])]
+        peak_ch1 = result.foi[np.argmax(power[1])]
+
+        assert abs(peak_ch0 - 10.0) < 2.0, f"Ch0 peak at {peak_ch0:.1f}, expected ~10 Hz"
+        assert abs(peak_ch1 - 20.0) < 2.0, f"Ch1 peak at {peak_ch1:.1f}, expected ~20 Hz"
+
+    def test_multichannel_complex(self, sfreq):
+        signal = np.random.default_rng(42).standard_normal((2, int(4 * sfreq)))
+        result = wavelet_decompose(signal, sfreq)
+        assert np.iscomplexobj(result.coefficients)
