@@ -25,11 +25,12 @@ time-domain components, combining meeglet's log-frequency Morlet wavelet represe
 with specparam's parametric spectral modeling and the FFT-weighting reconstruction
 approach from specparam-fft-weights.
 
-The tool computes time-varying spectral weights from wavelet-derived instantaneous power
-and time-resolved parametric fits, then applies those weights to wavelet coefficients
-(preserving phase) and synthesizes back to the time domain. The result is a
-non-stationary decomposition: aperiodic and periodic time-domain signals that track
-the dynamics of the original signal rather than assuming a single static spectrum.
+The tool decomposes signals into aperiodic and periodic components using a
+subtraction approach: it first extracts the periodic excess above the 1/f floor
+via bounded wavelet-domain weights, synthesizes the periodic signal, then defines
+the aperiodic as original minus periodic. This guarantees `original = aperiodic +
+periodic` exactly and preserves the full 1/f power at peak frequencies in the
+aperiodic component.
 
 ## Architecture
 
@@ -38,7 +39,7 @@ src/meeglet_specparam_weights/
 ├── __init__.py                  # Public API re-exports
 ├── wavelet_analysis.py          # meeglet wrapper: signal → complex coefficients Z(f,t)
 ├── time_resolved_fit.py         # Fit specparam to instantaneous power at each time step
-├── weight_surface.py            # Compute w(f,t) = sqrt(P_model(f,t) / |Z(f,t)|²)
+├── weight_surface.py            # Compute w(f,t); for aperiodic: excess weights via subtraction
 ├── synthesis.py                 # Weighted coefficients → time-domain signal via OLA
 ├── pipeline.py                  # End-to-end: signal in → ReconstructionResult out
 ├── coupling.py                  # Aperiodic-oscillatory coupling: virtual-channel CSD
@@ -113,10 +114,11 @@ class ReconstructionResult:
     reconstruction: np.ndarray  # (n_samples,) or (n_channels, n_samples)
     residual: np.ndarray        # (n_samples,) or (n_channels, n_samples)
     fit: TimeResolvedFit        # the underlying parametric fit
-    weights: WeightSurface      # the weight surface applied
+    weights: WeightSurface      # the weight surface applied (excess weights for subtraction)
     energy_ratio: float         # ||reconstruction||² / ||original||² (sanity check)
     decomposition: WaveletDecomposition  # the wavelet decomposition used
     frame_condition: float      # B/A of the frame operator; 1.0 = tight frame
+    method: str                 # "subtraction" or "weight"
 ```
 
 ### AperiodicCouplingResult (coupling output)
@@ -151,9 +153,12 @@ class AperiodicCouplingResult:
    All weighting happens in the wavelet domain (f, t), never via global FFT.
    The signal is decomposed once via meeglet; synthesis inverts that decomposition.
 
-2. **Phase is sacred.**
-   Weights are real and non-negative. Multiplication preserves phase exactly.
-   This is the same guarantee as specparam-fft-weights, extended to 2D.
+2. **Phase is sacred; aperiodic uses subtraction.**
+   Periodic extraction uses real, non-negative weights (preserving phase).
+   The aperiodic is defined as `original - periodic`, which preserves the full
+   1/f power at peak frequencies. The legacy Wiener filter approach
+   (`aperiodic_method="wiener"`) is still available but attenuates the aperiodic
+   at peak frequencies.
 
 3. **Parametric model comes from specparam, not from us.**
    We do not reimplement specparam's fitting. We call SpectralModel.fit() on

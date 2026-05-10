@@ -1,4 +1,14 @@
-"""End-to-end pipeline: signal in → ReconstructionResult out."""
+"""End-to-end pipeline: signal in → ReconstructionResult out.
+
+For the aperiodic component (default), uses a subtraction approach:
+  1. Compute excess weights: w_excess = sqrt(max(0, 1 - P_aperiodic/|Z|²))
+  2. Synthesize the periodic excess: periodic = OLA(Z * w_excess)
+  3. Define aperiodic by subtraction: aperiodic = original - periodic
+
+This guarantees original = aperiodic + periodic exactly and preserves the
+full 1/f power at peak frequencies in the aperiodic reconstruction. The
+legacy Wiener filter approach (aperiodic_method='wiener') is also available.
+"""
 
 from dataclasses import dataclass
 
@@ -19,6 +29,7 @@ class ReconstructionResult:
     energy_ratio: float
     decomposition: WaveletDecomposition
     frame_condition: float = 1.0  # B/A of the frame operator; 1.0 = tight frame
+    method: str = "weight"  # "weight" or "subtraction"
 
 
 def meeglet_specparam_reconstruct(
@@ -41,8 +52,15 @@ def meeglet_specparam_reconstruct(
     aperiodic_mode: str = "fixed",
     edge_taper: bool = True,
     n_iter: int = 1,
+    aperiodic_method: str = "subtraction",
 ) -> ReconstructionResult:
     """End-to-end spectral decomposition: signal → aperiodic/periodic time-domain signal.
+
+    For component='aperiodic', the default method ('subtraction') extracts the
+    periodic excess first via periodic weights, then subtracts it from the original
+    signal. This preserves the full 1/f power at peak frequencies. The legacy
+    'wiener' method scales coefficients by sqrt(P_aperiodic / |Z|²), which
+    attenuates oscillations in the aperiodic reconstruction.
 
     Parameters
     ----------
@@ -75,7 +93,18 @@ def meeglet_specparam_reconstruct(
         'fixed' or 'knee'.
     edge_taper : bool
         Taper reconstruction at signal edges.
+    n_iter : int
+        Iterative refinement steps for OLA synthesis.
+    aperiodic_method : str
+        'subtraction' (default): aperiodic = original - periodic_reconstruction.
+        'wiener' (legacy): aperiodic via Wiener filter weights directly.
+        Only affects component='aperiodic'; ignored for other components.
     """
+    if aperiodic_method not in ("subtraction", "wiener"):
+        raise ValueError(
+            f"aperiodic_method must be 'subtraction' or 'wiener', got '{aperiodic_method}'"
+        )
+
     signal = np.asarray(signal, dtype=np.float64)
 
     decomposition = wavelet_decompose(
@@ -95,6 +124,44 @@ def meeglet_specparam_reconstruct(
         min_peak_height=min_peak_height,
         aperiodic_mode=aperiodic_mode,
     )
+
+    use_subtraction = (component == "aperiodic" and aperiodic_method == "subtraction")
+
+    if use_subtraction:
+        aperiodic_weights = compute_weight_surface(
+            decomposition, fit,
+            component="aperiodic",
+            eps=eps,
+            max_weight=max_weight,
+        )
+        w_ap = aperiodic_weights.weights
+        excess_w = np.sqrt(np.maximum(0.0, 1.0 - w_ap ** 2))
+        excess_weights = WeightSurface(
+            weights=excess_w,
+            component="periodic",
+            eps=eps,
+            max_weight=1.0,
+        )
+        periodic_recon, _, frame_condition = synthesize(
+            decomposition, excess_weights,
+            edge_taper=edge_taper,
+            n_iter=max(n_iter, 5),
+        )
+        reconstruction = signal - periodic_recon
+        residual = periodic_recon
+        recon_energy = float(np.sum(reconstruction ** 2))
+        empirical_energy = float(np.sum(signal ** 2))
+        energy_ratio = recon_energy / max(empirical_energy, 1e-30)
+        return ReconstructionResult(
+            reconstruction=reconstruction,
+            residual=residual,
+            fit=fit,
+            weights=excess_weights,
+            energy_ratio=energy_ratio,
+            decomposition=decomposition,
+            frame_condition=frame_condition,
+            method="subtraction",
+        )
 
     weights = compute_weight_surface(
         decomposition, fit,
@@ -119,4 +186,5 @@ def meeglet_specparam_reconstruct(
         energy_ratio=energy_ratio,
         decomposition=decomposition,
         frame_condition=frame_condition,
+        method="weight",
     )

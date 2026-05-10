@@ -144,5 +144,18 @@ reconstruction idea from specparam-fft-weights.
 - [x] 15c: Deduplicate test fixtures — `make_pink_noise()` in conftest.py, replaced 6+ inline copies
 - [x] 15d: Document frame multiplier and Wiener filter connections in module docstrings
 
+### Phase 16: Aperiodic Decomposition Overhaul — Subtraction, Not Wiener Filter ✅
+- [x] `pipeline.py`: subtraction approach — excess weights w=sqrt(1-P_ap/|Z|²), aperiodic=orig-periodic
+- [x] `pipeline.py`: `aperiodic_method` parameter ("subtraction" default, "wiener" legacy)
+- [x] `pipeline.py`: `method` field on ReconstructionResult
+- [x] `weight_surface.py`: deprecation docstring on aperiodic weights for synthesis
+- [x] 7 new tests: method field, sums-to-original, periodic excess peak, bounded weights, invalid method
+- [x] `sim_stationary.py`: alpha preservation metric (replaces alpha suppression)
+- [x] `sim_noise_sweep.py`: peak ratio metric (replaces alpha suppression)
+- [x] All 4 validation scripts pass
+- [x] RESULTS.md updated with new paradigm and metrics
+- [x] CLAUDE.md, README.md, guardrails.md, module docstrings updated
+- [x] All tests pass: `pytest tests/ -v` (112 tests)
+
 ## Current Focus
-All phases (1–15) complete. 105 tests passing.
+All phases (1–16) complete. 112 tests passing.

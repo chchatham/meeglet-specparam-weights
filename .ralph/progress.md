@@ -1,15 +1,15 @@
 # Progress
 
 ## Current Focus
-All phases (1–15) complete. 105 tests passing. No open work items.
+Phase 16 complete. 112 tests passing. No open work items.
 
 ## What Exists
 - `src/meeglet_specparam_weights/__init__.py` — public API re-exports (includes `wavelet_effective_dof`)
 - `src/meeglet_specparam_weights/wavelet_analysis.py` — Phase 1 ✓ (vectorized NaN propagation via binary_dilation)
 - `src/meeglet_specparam_weights/time_resolved_fit.py` — Phase 2 ✓ (vectorized `_reconstruct_model_power`)
-- `src/meeglet_specparam_weights/weight_surface.py` — Phase 3 ✓ (oct-unit fix, Wiener filter docstring)
+- `src/meeglet_specparam_weights/weight_surface.py` — Phase 3 ✓ (aperiodic weights deprecated for synthesis, kept for diagnostics)
 - `src/meeglet_specparam_weights/synthesis.py` — Phase 4 ✓ (frame multiplier docstring, frame_condition diagnostic)
-- `src/meeglet_specparam_weights/pipeline.py` — Phase 5 ✓ (`ReconstructionResult.frame_condition` field)
+- `src/meeglet_specparam_weights/pipeline.py` — Phase 5+16 ✓ (subtraction aperiodic, `method` field, `aperiodic_method` param)
 - `src/meeglet_specparam_weights/coupling.py` — Phase 13 ✓ (einsum CSD, np.correlate DOF, `wavelet_effective_dof`)
 - `src/meeglet_specparam_weights/diagnostics.py` — Phase 9 ✓
 - `tests/conftest.py` — shared fixtures + `make_pink_noise()` helper
@@ -17,12 +17,12 @@ All phases (1–15) complete. 105 tests passing. No open work items.
 - `tests/test_time_resolved_fit.py` — 16 tests ✓
 - `tests/test_weight_surface.py` — 13 tests ✓
 - `tests/test_synthesis.py` — 11 tests ✓ (includes frame_condition test)
-- `tests/test_pipeline.py` — 11 tests ✓
+- `tests/test_pipeline.py` — 18 tests ✓ (includes 7 Phase 16 subtraction tests)
 - `tests/test_coupling.py` — 17 tests ✓ (includes 3 wavelet_effective_dof tests)
 - `tests/test_diagnostics.py` — 8 tests ✓
 - `validation/` — 4 simulation scripts + metrics.py + RESULTS.md ✓
 - `docs/` — GitHub Pages site, figures, generation script ✓
-- **Total: 105 tests, all passing**
+- **Total: 112 tests, all passing**
 
 ## Key Implementation Details
 - Wavelet convolution uses scipy.signal.fftconvolve in 'same' mode at every sample
@@ -30,7 +30,7 @@ All phases (1–15) complete. 105 tests passing. No open work items.
 - Single-sample power is too noisy — averaged over power_window before fitting
 - Model power is reconstructed on the original log-freq grid from fitted parameters
 - Synthesis uses OLA with normalization envelope (frame multiplier, Balazs 2007)
-- Weight surface is an amplitude-domain Wiener filter: w(f,t) = sqrt(P_model / |Z|²)
+- Aperiodic uses subtraction: excess_w = sqrt(1 - P_ap/|Z|²), aperiodic = orig - synth(Z*excess_w)
 - Frame condition B/A computed from normalization envelope interior, reported in ReconstructionResult
 - `synthesize()` returns 3-tuple: `(reconstruction, energy_ratio, frame_condition)`
 - Peak params: specparam returns FWHM bandwidth, must convert to std for reconstruction
@@ -52,8 +52,23 @@ All phases (1–15) complete. 105 tests passing. No open work items.
 - **CLAUDE.md**: Updated ReconstructionResult schema (added `frame_condition`), updated design principle #5
 - **105 tests passing** (101 original + 4 new: 3 wavelet_effective_dof + 1 frame_condition)
 
+## What's Done This Session (Phase 16: Subtraction Paradigm)
+- **Core change**: `pipeline.py` — when `component="aperiodic"`, computes excess weights
+  `w_excess = sqrt(max(0, 1 - w_ap²))`, synthesizes periodic excess, subtracts from original
+- **Key insight**: Original periodic weights (`sqrt(P_periodic / |Z|²)`) could exceed 1.0
+  (max 56.7!), causing OLA synthesis to explode. Excess weights are bounded [0, 1].
+- **Forced `n_iter >= 5`** for the periodic synthesis in subtraction mode
+- **New `ReconstructionResult.method` field**: "subtraction" (default for aperiodic) or "weight"
+- **Legacy `aperiodic_method="wiener"` parameter** for backward compatibility
+- **7 new tests**: method field, decomposition sums to original, periodic excess peak,
+  bounded weights, invalid method raises ValueError
+- **Validation**: All 4 scripts pass. Replaced alpha suppression metric with alpha
+  preservation metric in sim_stationary.py and sim_noise_sweep.py
+- **Docs**: Updated CLAUDE.md, README.md, guardrails.md, module docstrings, RESULTS.md
+- **112 tests passing** (105 original + 7 new)
+
 ## What's Next
-All planned phases complete. Potential future work:
+All planned phases (1-16) complete. Potential future work:
 - pip-installable package (pyproject.toml)
 - Real EEG data examples
 - Surrogate testing implementation for coupling inference
@@ -75,6 +90,7 @@ All planned phases complete. Potential future work:
 14. Skip complex cross-covariance (B) and phase-binning (D) approaches.
 15. Frame condition B/A as the synthesis quality diagnostic (not energy ratio alone).
 16. Wavelet-aware DOF n_eff(f) = T/(2*sigma_time) alongside generic Bartlett DOF.
+17. Aperiodic via subtraction (not Wiener): excess_w = sqrt(1-P_ap/|Z|²), aperiodic = orig - periodic.
 
 ## Known Issues
 - Synthesis is approximate (OLA with normalization) — frame_condition and energy_ratio track quality

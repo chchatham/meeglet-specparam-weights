@@ -153,6 +153,78 @@ class TestPeriodicReconstruction:
         )
 
 
+class TestSubtractionMethod:
+    """Verify subtraction-based aperiodic decomposition (Phase 16)."""
+
+    def test_method_field_subtraction(self, pink_plus_alpha_signal, sfreq):
+        signal, _, _ = pink_plus_alpha_signal
+        result = meeglet_specparam_reconstruct(
+            signal, sfreq, component="aperiodic", fit_stride=50
+        )
+        assert result.method == "subtraction"
+
+    def test_method_field_wiener(self, pink_plus_alpha_signal, sfreq):
+        signal, _, _ = pink_plus_alpha_signal
+        result = meeglet_specparam_reconstruct(
+            signal, sfreq, component="aperiodic", fit_stride=50,
+            aperiodic_method="wiener",
+        )
+        assert result.method == "weight"
+
+    def test_method_field_periodic(self, pink_plus_alpha_signal, sfreq):
+        signal, _, _ = pink_plus_alpha_signal
+        result = meeglet_specparam_reconstruct(
+            signal, sfreq, component="periodic", fit_stride=50
+        )
+        assert result.method == "weight"
+
+    def test_decomposition_sums_to_original(self, pink_plus_alpha_signal, sfreq):
+        """periodic_recon + aperiodic_recon = original signal."""
+        signal, _, _ = pink_plus_alpha_signal
+        result = meeglet_specparam_reconstruct(
+            signal, sfreq, component="aperiodic", fit_stride=50
+        )
+        np.testing.assert_allclose(
+            result.reconstruction + result.residual, signal, atol=1e-10
+        )
+
+    def test_periodic_contains_only_excess(self, pink_plus_alpha_signal, sfreq):
+        """The periodic residual (from aperiodic subtraction) should peak at alpha."""
+        signal, _, _ = pink_plus_alpha_signal
+        result = meeglet_specparam_reconstruct(
+            signal, sfreq, component="aperiodic", fit_stride=50
+        )
+        edge = int(0.5 * sfreq)
+        periodic = result.residual[edge:-edge]
+
+        n = len(periodic)
+        freqs = np.fft.rfftfreq(n, d=1.0 / sfreq)
+        spectrum = np.abs(np.fft.rfft(periodic)) ** 2
+
+        idx_10 = np.argmin(np.abs(freqs - 10))
+        idx_5 = np.argmin(np.abs(freqs - 5))
+        assert spectrum[idx_10] > spectrum[idx_5] * 10, (
+            "Periodic residual should have strong 10 Hz peak"
+        )
+
+    def test_excess_weights_bounded(self, pink_plus_alpha_signal, sfreq):
+        """Excess weights used for subtraction must be in [0, 1]."""
+        signal, _, _ = pink_plus_alpha_signal
+        result = meeglet_specparam_reconstruct(
+            signal, sfreq, component="aperiodic", fit_stride=50
+        )
+        assert result.weights.weights.min() >= 0.0
+        assert result.weights.weights.max() <= 1.0
+
+    def test_invalid_aperiodic_method_raises(self, pink_plus_alpha_signal, sfreq):
+        signal, _, _ = pink_plus_alpha_signal
+        with pytest.raises(ValueError, match="aperiodic_method"):
+            meeglet_specparam_reconstruct(
+                signal, sfreq, component="aperiodic", fit_stride=50,
+                aperiodic_method="invalid",
+            )
+
+
 class TestMultiChannelPipeline:
     """Verify multi-channel end-to-end pipeline."""
 

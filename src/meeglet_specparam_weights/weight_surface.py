@@ -1,8 +1,11 @@
 """Weight surface: w(f,t) = sqrt(P_model / |Z|²), an amplitude-domain Wiener filter.
 
 The weight at each time-frequency point is the ratio of model amplitude to
-empirical amplitude. Multiplying Z(f,t) by w(f,t) is equivalent to applying
-a non-negative, phase-preserving Wiener filter in the wavelet domain.
+empirical amplitude. For periodic and full components, the weight surface is
+used directly for synthesis. For the aperiodic component, the pipeline uses
+a subtraction approach instead: excess weights w_excess = sqrt(1 - w_ap²)
+extract the periodic excess, and aperiodic = original - periodic. The
+aperiodic weight surface is retained for diagnostic visualization.
 """
 
 from dataclasses import dataclass

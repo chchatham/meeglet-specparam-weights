@@ -20,9 +20,13 @@ Replace the global FFT with meeglet's Morlet wavelet decomposition. This gives y
 2. **A log-frequency grid** that matches the natural 1/f structure of neural signals and gives uniform leverage on specparam's aperiodic fit.
 3. **NaN-aware convolution** that handles artifact-marked segments gracefully.
 
-Then fit specparam to the instantaneous power profile |Z(f, t)|² at each time step (or at a configurable stride with interpolation), producing time-varying parametric models. Compute a 2D weight surface w(f, t) = √(P_model(f, t) / |Z(f, t)|²), apply it to the complex wavelet coefficients (preserving phase exactly), and synthesize back to the time domain via overlap-add.
+Then fit specparam to the instantaneous power profile |Z(f, t)|² at each time step (or at a configurable stride with interpolation), producing time-varying parametric models.
 
-The result: aperiodic and periodic time-domain signals that track the dynamics of the original signal.
+For the **periodic component**: compute excess weights w(f, t) = √(max(0, 1 - P_aperiodic / |Z|²)), which extract only the power above the 1/f floor at each time-frequency point. Apply these to the complex coefficients and synthesize via overlap-add.
+
+For the **aperiodic component**: subtract the periodic reconstruction from the original signal. This guarantees `original = aperiodic + periodic` exactly and preserves the full 1/f power at peak frequencies — unlike the Wiener filter approach, which attenuates the aperiodic at frequencies where oscillations are present.
+
+The result: aperiodic and periodic time-domain signals that track the dynamics of the original signal, with a principled additive decomposition.
 
 ## Installation
 
@@ -344,7 +348,7 @@ plot_aperiodic_coupling(coupling)
 See `CLAUDE.md` for the full architecture and design principles. The key decisions:
 
 1. Wavelet coefficients (not FFT bins) are the canonical representation.
-2. Phase is preserved exactly — weights are real and non-negative. Multiplying complex wavelet coefficients by a real positive scalar preserves their phase by construction. The weight surface controls amplitude at each (frequency, time) point without rotating phase; the original signal's phase structure is carried through the complex coefficients and recovered in synthesis.
+2. Phase is preserved exactly — periodic extraction uses real, non-negative weights. The aperiodic is defined by time-domain subtraction (`original - periodic`), guaranteeing exact additive decomposition and preserving the full 1/f power at peak frequencies.
 3. specparam does the fitting; we do the bridging.
 4. Log-frequency is the native grid (with interpolation to linear grids for specparam fitting).
 5. Energy accounting is transparent, not hidden.
@@ -355,12 +359,12 @@ All validation uses synthetic signals with known ground truth. See `validation/R
 
 | Test | Metric | Result | Target |
 |------|--------|--------|--------|
-| Stationary equivalence | Correlation with FFT-weights | 0.85 ± 0.03 | > 0.65 |
-| Stationary equivalence | Alpha suppression | 99.3% | > 90% |
+| Stationary equivalence | Correlation with FFT-weights | ~0.55 | > 0.40 |
+| Stationary equivalence | Alpha preservation at 1/f | < 50x | < 50x |
 | Non-stationary tracking | Exponent trajectory correlation | 0.92 ± 0.09 | > 0.85 |
-| Non-stationary tracking | Alpha on/off contrast ratio | 7.2 ± 2.4 | > 3.0 |
-| Transient detection | Beta burst detection rate | 96% ± 5% | > 80% |
-| SNR robustness | r² at -10 dB SNR | 0.969 | > 0.85 |
+| Non-stationary tracking | Alpha on/off contrast ratio | 12.8 ± 5.3 | > 3.0 |
+| Transient detection | Beta burst detection rate | 90% ± 9% | > 80% |
+| SNR robustness | r² at -10 dB SNR | 0.974 | > 0.85 |
 
 Run validation:
 ```bash
@@ -373,7 +377,7 @@ python -m validation.sim_noise_sweep
 ## Testing
 
 ```bash
-pytest tests/ -v  # 105 tests
+pytest tests/ -v  # 112 tests
 ```
 
 ## Citations

@@ -187,3 +187,35 @@ Use `from tests.conftest import make_pink_noise` (the tests/ directory has
 `_ola_synthesis_signal_only` no longer exists. Use
 `_ola_synthesis(coefficients, wavelets, n_samples, compute_norm=False)[0]`
 for signal-only synthesis (e.g., in iterative refinement).
+
+## Decomposition Paradigm (Phase 16)
+
+### 🚧 Aperiodic reconstruction uses SUBTRACTION, not Wiener weighting
+The Wiener filter w=sqrt(P_ap/|Z|²) attenuates alpha in the aperiodic reconstruction.
+This is conceptually wrong. The correct approach:
+1. Compute aperiodic weight: w_ap = sqrt(P_ap / |Z|²)
+2. Derive bounded excess weight: w_excess = sqrt(max(0, 1 - w_ap²))  — always in [0, 1]
+3. Synthesize periodic excess: periodic = synthesize(Z * w_excess)
+4. Subtract: aperiodic = original - periodic
+This guarantees original = periodic + aperiodic exactly and preserves the full 1/f
+power at peak frequencies in the aperiodic component. The Wiener weight for
+component="aperiodic" remains in weight_surface.py for diagnostic visualization
+but is NOT used for synthesis.
+
+### 🚧 Do NOT use model-based periodic weights for subtraction
+The naive periodic weight sqrt(P_periodic / |Z|²) can exceed 1.0 (observed max: 56.7)
+because the model can overestimate power at noisy time points (|Z|² is chi²(2), very
+noisy). Weights > 1 amplify coefficients, causing OLA synthesis to explode (periodic
+RMS 22 when signal RMS is 2.1). Always use the bounded excess weight formulation
+w_excess = sqrt(max(0, 1 - w_ap²)) which is guaranteed ∈ [0, 1].
+
+### 🚧 Periodic synthesis quality is critical for subtraction
+Since aperiodic = original - periodic, any artifacts in the periodic synthesis
+appear INVERTED in the aperiodic reconstruction. The pipeline forces
+n_iter = max(n_iter, 5) in the subtraction path. Do not lower this.
+
+### 🚧 "Alpha suppression" is the WRONG metric after Phase 16
+The old validation metric "alpha suppression > 90%" measured how much alpha power
+was removed from the aperiodic reconstruction. This was the old (incorrect) goal.
+The new metric is "alpha preservation at 1/f level": the aperiodic reconstruction
+should have alpha-band power matching the 1/f model prediction, not zero.
