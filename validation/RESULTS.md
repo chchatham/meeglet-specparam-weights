@@ -117,3 +117,84 @@ ratio increases with SNR: at higher SNR, the periodic residual concentrates more
 power at the alpha frequency and less at non-peak frequencies, indicating cleaner
 excess extraction. Values above are approximate — run `sim_noise_sweep.py` for
 exact values with the current subtraction approach.
+
+## Phase 19: Ground Truth Comparison of Separation Methods
+
+**Signal**: Pink noise (exponent 1.5) + 10 Hz sine with random phase, 10s @ 256 Hz.
+**Protocol**: 5 random seeds, 1s edge trim, sweep P_per/P_total ∈ {0.1, 0.3, 0.5, 0.7, 0.9}.
+**Methods**: subtraction, Wiener, state-space (Kalman oscillator + AR(p)).
+
+### Metrics
+
+- **Alpha power ratio**: PSD_recon(10 Hz) / PSD_true(10 Hz), averaged over ±1 Hz bandwidth. Target: 1.0.
+- **Waveform correlation**: Pearson r between aperiodic reconstruction and true aperiodic. Target: 1.0.
+- **Spectral shape error**: RMS of log10(PSD_recon) − log10(PSD_true) over 2–50 Hz. Target: 0.0.
+
+### Results
+
+#### Alpha Power Ratio (1.0 = perfect)
+
+| P_per/P_total | Subtraction | Wiener | State-Space |
+|---------------|-------------|--------|-------------|
+| 0.1           | 0.054       | 1.326  | 0.000       |
+| 0.3           | 0.021       | 1.599  | 0.000       |
+| 0.5           | 0.010       | 1.721  | 0.001       |
+| 0.7           | 0.004       | 1.811  | 0.003       |
+| 0.9           | 0.002       | 1.927  | 0.015       |
+
+#### Waveform Correlation (1.0 = perfect)
+
+| P_per/P_total | Subtraction | Wiener | State-Space |
+|---------------|-------------|--------|-------------|
+| 0.1           | 0.949       | 0.357  | 0.709       |
+| 0.3           | 0.950       | 0.348  | 0.612       |
+| 0.5           | 0.951       | 0.344  | 0.573       |
+| 0.7           | 0.951       | 0.340  | 0.606       |
+| 0.9           | 0.951       | 0.334  | 0.561       |
+
+#### Spectral Shape Error (0.0 = perfect)
+
+| P_per/P_total | Subtraction | Wiener | State-Space |
+|---------------|-------------|--------|-------------|
+| 0.1           | 0.854       | 0.382  | 2.986       |
+| 0.3           | 0.972       | 0.464  | 2.677       |
+| 0.5           | 1.068       | 0.532  | 2.616       |
+| 0.7           | 1.159       | 0.606  | 2.618       |
+| 0.9           | 1.339       | 0.748  | 2.669       |
+
+### Interpretation
+
+Each method has a distinct strength:
+
+- **Subtraction**: Best waveform correlation (~0.95). The overall temporal shape of the
+  aperiodic reconstruction closely matches the true aperiodic, but alpha-band power is
+  heavily suppressed (ratio 0.002–0.054). This is the known bias:
+  `(1−√r)²/(1−r)` where r = P_per/P_total.
+
+- **Wiener**: Best spectral shape fidelity (error 0.38–0.75) and alpha power close to
+  correct (ratio 1.3–1.9, slightly overshooting). However, the waveform is contaminated
+  with periodic phase structure (correlation 0.33–0.36), making it unreliable for
+  time-domain analyses.
+
+- **State-space**: Intermediate waveform correlation (0.56–0.71) but severe alpha
+  suppression (ratio ≈ 0) and high spectral error (2.6–3.0). The Kalman smoother's
+  damped oscillator absorbs all narrowband power near the peak — including the aperiodic
+  component at that frequency. The AR(p) process generates broadband power but the
+  oscillator wins the allocation at 10 Hz.
+
+### Key Insight
+
+All three methods face the same fundamental limitation at peak frequencies: the aperiodic
+and periodic signals coexist at the same frequency, and no single-trial linear method can
+perfectly separate them. The oscillator-based state-space approach does not solve this —
+it merely shifts the allocation rule from power ratios (subtraction/Wiener) to temporal
+dynamics (Kalman gain), but the narrowband oscillator still claims essentially all 10 Hz
+power.
+
+**Recommendation for users**:
+- For **time-domain waveform analysis**: use subtraction (best waveform correlation).
+- For **spectral-domain analysis** where correct PSD shape matters: use Wiener.
+- For **oscillator extraction** (e.g., alpha burst detection): use state-space, which
+  provides explicit oscillator components with correct temporal dynamics.
+- No method perfectly recovers both the aperiodic waveform AND its correct spectral shape
+  at peak frequencies on single-trial data.

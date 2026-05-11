@@ -1,10 +1,12 @@
 # Progress
 
 ## Current Focus
-Phase 16 complete. 112 tests passing. No open work items.
+Phase 19 complete. 156 tests passing. Phase 20 (multi-epoch ensemble estimation) is next.
 
 ## What Exists
-- `src/meeglet_specparam_weights/__init__.py` — public API re-exports (includes `wavelet_effective_dof`)
+- `src/meeglet_specparam_weights/__init__.py` — public API re-exports (includes state-space, separation)
+- `src/meeglet_specparam_weights/separation.py` — Phase 17 ✓ (SeparationResult, subtraction/wiener/bias diagnostics)
+- `src/meeglet_specparam_weights/state_space.py` — Phase 18 ✓ (Kalman oscillator + AR(p) decomposition)
 - `src/meeglet_specparam_weights/wavelet_analysis.py` — Phase 1 ✓ (vectorized NaN propagation via binary_dilation)
 - `src/meeglet_specparam_weights/time_resolved_fit.py` — Phase 2 ✓ (vectorized `_reconstruct_model_power`)
 - `src/meeglet_specparam_weights/weight_surface.py` — Phase 3 ✓ (aperiodic weights deprecated for synthesis, kept for diagnostics)
@@ -20,7 +22,7 @@ Phase 16 complete. 112 tests passing. No open work items.
 - `tests/test_pipeline.py` — 18 tests ✓ (includes 7 Phase 16 subtraction tests)
 - `tests/test_coupling.py` — 17 tests ✓ (includes 3 wavelet_effective_dof tests)
 - `tests/test_diagnostics.py` — 8 tests ✓
-- `validation/` — 4 simulation scripts + metrics.py + RESULTS.md ✓
+- `validation/` — 5 simulation scripts + metrics.py + RESULTS.md ✓ (includes Phase 19 ground truth comparison)
 - `docs/` — GitHub Pages site, figures, generation script ✓
 - **Total: 112 tests, all passing**
 

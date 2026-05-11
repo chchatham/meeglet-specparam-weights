@@ -169,7 +169,7 @@ class TestSubtractionMethod:
             signal, sfreq, component="aperiodic", fit_stride=50,
             aperiodic_method="wiener",
         )
-        assert result.method == "weight"
+        assert result.method == "wiener"
 
     def test_method_field_periodic(self, pink_plus_alpha_signal, sfreq):
         signal, _, _ = pink_plus_alpha_signal

@@ -6,6 +6,7 @@ from matplotlib.figure import Figure
 
 from .pipeline import ReconstructionResult
 from .coupling import AperiodicCouplingResult
+from .separation import decomposition_bias_estimate
 
 
 def plot_fit_quality(result: ReconstructionResult, ax: plt.Axes | None = None) -> Figure:
@@ -124,6 +125,49 @@ def plot_parameter_trajectories(result: ReconstructionResult) -> Figure:
         axes[2].set_ylabel("Peak CF (Hz)")
 
     axes[-1].set_xlabel("Time (s)")
+    fig.tight_layout()
+    return fig
+
+
+def plot_decomposition_bias(
+    result: ReconstructionResult,
+    ax: plt.Axes | None = None,
+) -> Figure:
+    """Plot expected power bias factor across frequencies.
+
+    Shows the theoretical ratio of reconstructed to true aperiodic power
+    at each frequency. Values near 1.0 are unbiased; values << 1.0 indicate
+    the aperiodic is suppressed at that frequency (typically at peak locations).
+    """
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 3))
+    else:
+        fig = ax.get_figure()
+
+    foi = result.decomposition.foi
+    if result.bias_estimate is not None:
+        bias = result.bias_estimate
+    else:
+        bias = decomposition_bias_estimate(
+            result.decomposition, result.fit, method=result.method,
+        )
+
+    ax.semilogy(foi, bias, color="steelblue", linewidth=1.5)
+    ax.axhline(1.0, color="gray", linestyle="--", linewidth=0.8)
+    ax.axhline(0.5, color="orange", linestyle=":", linewidth=0.8, label="50% power retained")
+    suppressed = bias < 0.5
+    if np.any(suppressed):
+        ax.fill_between(
+            foi, bias, 0.5,
+            where=suppressed, alpha=0.2, color="red", label="suppressed region",
+        )
+    ax.set_xlabel("Frequency (Hz)")
+    ax.set_ylabel("Bias factor (P_recon / P_true)")
+    ax.set_xscale("log")
+    ax.set_title(f"Decomposition bias ({result.method})")
+    ax.legend(loc="lower left", fontsize=8)
+    ax.set_ylim(bottom=1e-3)
     fig.tight_layout()
     return fig
 

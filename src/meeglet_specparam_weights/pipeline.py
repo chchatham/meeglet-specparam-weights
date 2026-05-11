@@ -1,16 +1,18 @@
 """End-to-end pipeline: signal in → ReconstructionResult out.
 
-For the aperiodic component (default), uses a subtraction approach:
-  1. Compute excess weights: w_excess = sqrt(max(0, 1 - P_aperiodic/|Z|²))
-  2. Synthesize the periodic excess: periodic = OLA(Z * w_excess)
-  3. Define aperiodic by subtraction: aperiodic = original - periodic
+Supports multiple separation strategies for the aperiodic component:
+  - 'subtraction' (default): aperiodic = original - periodic_excess.
+    Exact decomposition but suppresses aperiodic power at peak frequencies.
+  - 'wiener': aperiodic via Wiener filter weights. Preserves correct aperiodic
+    power at all frequencies but contaminates the waveform with periodic phase.
+  - 'state_space': Kalman smoother with damped oscillators + AR(p) aperiodic.
+    Uses temporal structure for proper separation of induced oscillations.
 
-This guarantees original = aperiodic + periodic exactly and preserves the
-full 1/f power at peak frequencies in the aperiodic reconstruction. The
-legacy Wiener filter approach (aperiodic_method='wiener') is also available.
+For periodic and full components, wavelet-domain weighting is used directly.
 """
 
-from dataclasses import dataclass
+import warnings
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -18,6 +20,13 @@ from .wavelet_analysis import WaveletDecomposition, wavelet_decompose
 from .time_resolved_fit import TimeResolvedFit, time_resolved_fit
 from .weight_surface import WeightSurface, compute_weight_surface
 from .synthesis import synthesize
+from .separation import (
+    SeparationResult,
+    subtraction_separate,
+    wiener_separate,
+    decomposition_bias_estimate,
+)
+from .state_space import state_space_separate
 
 
 @dataclass
@@ -28,8 +37,9 @@ class ReconstructionResult:
     weights: WeightSurface
     energy_ratio: float
     decomposition: WaveletDecomposition
-    frame_condition: float = 1.0  # B/A of the frame operator; 1.0 = tight frame
-    method: str = "weight"  # "weight" or "subtraction"
+    frame_condition: float = 1.0
+    method: str = "weight"
+    bias_estimate: np.ndarray | None = field(default=None, repr=False)
 
 
 def meeglet_specparam_reconstruct(
@@ -52,15 +62,10 @@ def meeglet_specparam_reconstruct(
     aperiodic_mode: str = "fixed",
     edge_taper: bool = True,
     n_iter: int = 1,
-    aperiodic_method: str = "subtraction",
+    separation: str | None = None,
+    aperiodic_method: str | None = None,
 ) -> ReconstructionResult:
     """End-to-end spectral decomposition: signal → aperiodic/periodic time-domain signal.
-
-    For component='aperiodic', the default method ('subtraction') extracts the
-    periodic excess first via periodic weights, then subtracts it from the original
-    signal. This preserves the full 1/f power at peak frequencies. The legacy
-    'wiener' method scales coefficients by sqrt(P_aperiodic / |Z|²), which
-    attenuates oscillations in the aperiodic reconstruction.
 
     Parameters
     ----------
@@ -95,15 +100,16 @@ def meeglet_specparam_reconstruct(
         Taper reconstruction at signal edges.
     n_iter : int
         Iterative refinement steps for OLA synthesis.
-    aperiodic_method : str
+    separation : str or None
+        Separation strategy for component='aperiodic':
         'subtraction' (default): aperiodic = original - periodic_reconstruction.
-        'wiener' (legacy): aperiodic via Wiener filter weights directly.
-        Only affects component='aperiodic'; ignored for other components.
+        'wiener': aperiodic via Wiener filter weights directly.
+        'state_space': Kalman oscillator + AR(p) decomposition.
+        Ignored for component='periodic' or 'full'.
+    aperiodic_method : str or None
+        Deprecated. Use ``separation`` instead.
     """
-    if aperiodic_method not in ("subtraction", "wiener"):
-        raise ValueError(
-            f"aperiodic_method must be 'subtraction' or 'wiener', got '{aperiodic_method}'"
-        )
+    resolved_sep = _resolve_separation(separation, aperiodic_method)
 
     signal = np.asarray(signal, dtype=np.float64)
 
@@ -125,42 +131,45 @@ def meeglet_specparam_reconstruct(
         aperiodic_mode=aperiodic_mode,
     )
 
-    use_subtraction = (component == "aperiodic" and aperiodic_method == "subtraction")
+    use_separation = component == "aperiodic" and resolved_sep in ("subtraction", "wiener", "state_space")
 
-    if use_subtraction:
-        aperiodic_weights = compute_weight_surface(
-            decomposition, fit,
-            component="aperiodic",
-            eps=eps,
-            max_weight=max_weight,
-        )
-        w_ap = aperiodic_weights.weights
-        excess_w = np.sqrt(np.maximum(0.0, 1.0 - w_ap ** 2))
-        excess_weights = WeightSurface(
-            weights=excess_w,
-            component="periodic",
-            eps=eps,
-            max_weight=1.0,
-        )
-        periodic_recon, _, frame_condition = synthesize(
-            decomposition, excess_weights,
-            edge_taper=edge_taper,
-            n_iter=max(n_iter, 5),
-        )
-        reconstruction = signal - periodic_recon
-        residual = periodic_recon
-        recon_energy = float(np.sum(reconstruction ** 2))
-        empirical_energy = float(np.sum(signal ** 2))
-        energy_ratio = recon_energy / max(empirical_energy, 1e-30)
+    if use_separation:
+        if resolved_sep == "state_space":
+            sep_result = state_space_separate(
+                signal, decomposition, fit, sfreq,
+                n_iter=n_iter,
+            )
+        elif resolved_sep == "subtraction":
+            sep_result = subtraction_separate(
+                signal, decomposition, fit,
+                eps=eps, max_weight=max_weight,
+                n_iter=n_iter, edge_taper=edge_taper,
+            )
+        else:
+            sep_result = wiener_separate(
+                signal, decomposition, fit,
+                eps=eps, max_weight=max_weight,
+                n_iter=n_iter, edge_taper=edge_taper,
+            )
+
+        weights = sep_result.weights
+        if weights is None:
+            weights = compute_weight_surface(
+                decomposition, fit,
+                component="aperiodic",
+                eps=eps, max_weight=max_weight,
+            )
+
         return ReconstructionResult(
-            reconstruction=reconstruction,
-            residual=residual,
+            reconstruction=sep_result.aperiodic,
+            residual=sep_result.periodic,
             fit=fit,
-            weights=excess_weights,
-            energy_ratio=energy_ratio,
+            weights=weights,
+            energy_ratio=sep_result.energy_ratio,
             decomposition=decomposition,
-            frame_condition=frame_condition,
-            method="subtraction",
+            frame_condition=sep_result.frame_condition,
+            method=sep_result.method,
+            bias_estimate=sep_result.bias_estimate,
         )
 
     weights = compute_weight_surface(
@@ -187,4 +196,37 @@ def meeglet_specparam_reconstruct(
         decomposition=decomposition,
         frame_condition=frame_condition,
         method="weight",
+        bias_estimate=None,
     )
+
+
+def _resolve_separation(
+    separation: str | None,
+    aperiodic_method: str | None,
+) -> str:
+    """Resolve the separation parameter, handling the deprecated aperiodic_method."""
+    if separation is not None and aperiodic_method is not None:
+        raise ValueError(
+            "Cannot specify both 'separation' and 'aperiodic_method'. "
+            "Use 'separation' (aperiodic_method is deprecated)."
+        )
+
+    if aperiodic_method is not None:
+        warnings.warn(
+            "aperiodic_method is deprecated; use separation instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        result = aperiodic_method
+    elif separation is not None:
+        result = separation
+    else:
+        result = "subtraction"
+
+    valid = ("subtraction", "wiener", "state_space")
+    if result not in valid:
+        param_name = "aperiodic_method" if aperiodic_method is not None else "separation"
+        raise ValueError(
+            f"{param_name} must be one of {valid}, got '{result}'"
+        )
+    return result

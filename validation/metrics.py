@@ -1,6 +1,7 @@
 """Validation metrics and signal generators."""
 
 import numpy as np
+from scipy.signal import welch
 
 
 def correlation(a: np.ndarray, b: np.ndarray) -> float:
@@ -55,3 +56,44 @@ def generate_pink_noise(
     fft *= 1.0 / np.power(freqs, exponent / 2.0)
     pink = np.fft.irfft(fft, n=n_samples)
     return pink / np.std(pink)
+
+
+def alpha_power_ratio(
+    reconstruction: np.ndarray,
+    ground_truth: np.ndarray,
+    sfreq: float,
+    peak_freq: float = 10.0,
+    nperseg: int = 512,
+    bandwidth: float = 2.0,
+) -> float:
+    """Ratio of reconstructed to true PSD at the peak frequency.
+
+    Averages PSD over [peak_freq - bandwidth/2, peak_freq + bandwidth/2].
+    Returns ratio; 1.0 is perfect.
+    """
+    f_r, psd_r = welch(reconstruction, fs=sfreq, nperseg=nperseg)
+    f_t, psd_t = welch(ground_truth, fs=sfreq, nperseg=nperseg)
+    mask = (f_r >= peak_freq - bandwidth / 2) & (f_r <= peak_freq + bandwidth / 2)
+    if not np.any(mask):
+        return float("nan")
+    return float(np.mean(psd_r[mask]) / max(np.mean(psd_t[mask]), 1e-30))
+
+
+def spectral_shape_error(
+    reconstruction: np.ndarray,
+    ground_truth: np.ndarray,
+    sfreq: float,
+    nperseg: int = 512,
+    freq_range: tuple[float, float] = (2.0, 50.0),
+) -> float:
+    """RMS error of log10(PSD) between reconstruction and ground truth.
+
+    Computed over the specified frequency range. Lower is better.
+    """
+    f_r, psd_r = welch(reconstruction, fs=sfreq, nperseg=nperseg)
+    f_t, psd_t = welch(ground_truth, fs=sfreq, nperseg=nperseg)
+    mask = (f_r >= freq_range[0]) & (f_r <= freq_range[1])
+    psd_r_m = np.maximum(psd_r[mask], 1e-30)
+    psd_t_m = np.maximum(psd_t[mask], 1e-30)
+    log_diff = np.log10(psd_r_m) - np.log10(psd_t_m)
+    return float(np.sqrt(np.mean(log_diff ** 2)))

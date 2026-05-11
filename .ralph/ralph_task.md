@@ -157,5 +157,38 @@ reconstruction idea from specparam-fft-weights.
 - [x] CLAUDE.md, README.md, guardrails.md, module docstrings updated
 - [x] All tests pass: `pytest tests/ -v` (112 tests)
 
+### Phase 17: Separation Framework + Bias Diagnostics ✅
+- [x] `separation.py`: SeparationResult dataclass, subtraction_separate, wiener_separate
+- [x] `separation.py`: decomposition_bias_estimate — theoretical power bias at each frequency
+- [x] `pipeline.py`: new `separation` parameter (deprecates `aperiodic_method`)
+- [x] `pipeline.py`: ReconstructionResult gains `bias_estimate` field
+- [x] `diagnostics.py`: plot_decomposition_bias visualization
+- [x] Tests: 21 tests in test_separation.py
+- [x] All 133 tests pass (112 original + 21 new)
+
+### Phase 18: State-Space Decomposition ✅
+- [x] `state_space.py`: AR coefficients from 1/f exponent via Yule-Walker
+- [x] `state_space.py`: AR order selection via AIC/BIC
+- [x] `state_space.py`: StateSpaceModel + build_matrices (oscillators + AR companion)
+- [x] `state_space.py`: Kalman filter (forward pass) + RTS smoother (backward pass)
+- [x] `state_space.py`: state_space_decompose — full decomposition into oscillators + aperiodic
+- [x] `state_space.py`: state_space_separate — SeparationResult for pipeline integration
+- [x] `pipeline.py`: separation="state_space" wired through
+- [x] Peak frequency clustering for oscillator slot assignment
+- [x] Multi-channel support via per-channel processing
+- [x] Tests: 23 tests in test_state_space.py
+- [x] All 156 tests pass (133 + 23 new)
+
+### Phase 19: Ground Truth Validation ✅
+- [x] `validation/sim_ground_truth.py`: head-to-head comparison of all methods
+- [x] `validation/metrics.py`: alpha_power_ratio, waveform_correlation, spectral_shape_error
+- [x] Validation matrix across P_per/P_total ratios {0.1, 0.3, 0.5, 0.7, 0.9}
+- [x] RESULTS.md updated with comparison table and interpretation
+
+### Phase 20: Multi-Epoch Ensemble Estimation (TODO)
+- [ ] `epochs.py`: ensemble_decompose, meeglet_specparam_reconstruct_epochs
+- [ ] Evoked separation via trial-averaged coefficients
+- [ ] Tests in test_epochs.py
+
 ## Current Focus
-All phases (1–16) complete. 112 tests passing.
+Phases 17-19 complete. 156 tests passing. Phase 20 (multi-epoch ensemble estimation) is next.
