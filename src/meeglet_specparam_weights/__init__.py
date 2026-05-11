@@ -30,6 +30,12 @@ from .epochs import (
     ensemble_decompose,
     meeglet_specparam_reconstruct_epochs,
 )
+from .spectral_pca import (
+    SpectralPCAResult,
+    compute_csd,
+    spectral_pca_decompose,
+    spectral_pca_reconstruct,
+)
 from .diagnostics import (
     plot_fit_quality,
     plot_weight_surface,

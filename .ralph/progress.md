@@ -1,7 +1,7 @@
 # Progress
 
 ## Current Focus
-All 20 phases complete. 181 tests passing.
+Phase 21 (Spectral PCA) complete. 211 tests passing.
 
 ## What Exists
 - `src/meeglet_specparam_weights/__init__.py` — public API re-exports (includes state-space, separation, epochs)
@@ -28,7 +28,9 @@ All 20 phases complete. 181 tests passing.
 - `tests/test_state_space.py` — 23 tests ✓ (Phase 18 Kalman + AR decomposition)
 - `src/meeglet_specparam_weights/epochs.py` — Phase 20 ✓ (ensemble decompose, epoch reconstruction, evoked separation)
 - `tests/test_epochs.py` — 25 tests ✓ (Phase 20 multi-epoch ensemble estimation)
-- **Total: 181 tests, all passing**
+- `src/meeglet_specparam_weights/spectral_pca.py` — Phase 21 ✓ (CSD eigendecomposition, PC-space fitting, channel-space reconstruction)
+- `tests/test_spectral_pca.py` — 30 tests ✓ (CSD, eigendecompose, projection, reconstruct, wiener, vs-per-channel)
+- **Total: 211 tests, all passing**
 
 ## Key Implementation Details
 - Wavelet convolution uses scipy.signal.fftconvolve in 'same' mode at every sample
@@ -52,8 +54,19 @@ All 20 phases complete. 181 tests passing.
   - 25 tests covering shapes, subtraction sum-to-original, exponent recovery, evoked correlation, validation
   - All 3 separation methods (subtraction, wiener, state_space) supported
 
+## What's Done This Session (Phase 21)
+- **Phase 21**: Spectral PCA Decomposition
+  - `spectral_pca.py`: CSD eigendecomposition of multi-channel wavelet coefficients
+  - Eigenvalue spectra as real, non-negative power spectra — ideal specparam input
+  - PC-space fitting and weighting, back-projection to channel space
+  - Subtraction and Wiener separation modes
+  - `SpectralPCAResult` dataclass with eigenvectors, eigenvalues, mode fits, variance explained
+  - 30 tests: CSD (6), eigendecompose (8), projection (3), reconstruct (9), wiener (2), vs-per-channel (2)
+  - `__init__.py` updated with 4 new exports
+  - `CLAUDE.md` updated with SpectralPCAResult schema and architecture entries
+
 ## What's Next
-All 20 planned phases complete. 181 tests passing.
+All 21 phases complete. 211 tests passing.
 - Potential future work: pip-installable package, real EEG data examples, surrogate testing
 
 ## Decisions Made (Do Not Revisit)

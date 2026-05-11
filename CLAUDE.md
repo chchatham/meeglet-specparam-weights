@@ -44,6 +44,7 @@ src/meeglet_specparam_weights/
 ├── pipeline.py                  # End-to-end: signal in → ReconstructionResult out
 ├── coupling.py                  # Aperiodic-oscillatory coupling: virtual-channel CSD
 ├── epochs.py                    # Multi-epoch ensemble estimation: trial-averaged fitting
+├── spectral_pca.py              # Spectral PCA: CSD eigendecomposition for multivariate decomposition
 └── diagnostics.py               # Fit quality, energy accounting, visualization helpers
 
 tests/
@@ -55,6 +56,7 @@ tests/
 ├── test_diagnostics.py          # Plotting smoke tests, metric calculations
 ├── test_coupling.py             # CSD shape, Hermitian, Nyquist, coupling recovery
 ├── test_epochs.py               # Multi-epoch ensemble estimation, evoked separation
+├── test_spectral_pca.py         # CSD eigendecomposition, projection, PCA reconstruction
 └── conftest.py                  # Shared fixtures: synthetic signals, standard wavelet configs
 
 validation/
@@ -146,6 +148,26 @@ class EpochDecompositionResult:
     ensemble_power: np.ndarray      # (n_freqs, n_times) trial-averaged |Z|²
     separation: str                 # "subtraction", "wiener", "state_space"
     energy_ratios: np.ndarray       # (n_epochs,) per-epoch energy ratio
+```
+
+### SpectralPCAResult (spectral_pca output)
+```python
+@dataclass
+class SpectralPCAResult:
+    aperiodic: np.ndarray           # (n_channels, n_samples)
+    periodic: np.ndarray            # (n_channels, n_samples)
+    eigenvectors: np.ndarray        # (n_channels, n_modes, n_freqs) — spatial modes
+    eigenvalues: np.ndarray         # (n_modes, n_freqs) — eigenvalue spectra
+    mode_fit: TimeResolvedFit       # specparam fit in PC space
+    mode_periodic: np.ndarray       # (n_modes, n_samples)
+    mode_aperiodic: np.ndarray      # (n_modes, n_samples)
+    n_modes: int
+    variance_explained: np.ndarray  # (n_modes,)
+    csd: np.ndarray                 # (n_ch, n_ch, n_freqs)
+    decomposition: WaveletDecomposition
+    energy_ratio: float
+    frame_condition: float
+    separation: str                 # "subtraction" or "wiener"
 ```
 
 ## Environment

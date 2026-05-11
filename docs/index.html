@@ -285,6 +285,7 @@
             <a href="#multichannel">Multi-Channel</a>
             <a href="#coupling">Coupling</a>
             <a href="#epochs">Multi-Epoch</a>
+            <a href="#spectral-pca">Spectral PCA</a>
             <a href="#workflows">Advanced Workflows</a>
             <a href="#architecture">Architecture</a>
         </div>
@@ -295,7 +296,7 @@
             <h1>meeglet-specparam-<span>weights</span></h1>
             <p>Time-resolved aperiodic/periodic decomposition of M/EEG signals via wavelet-domain parametric modeling and subtraction.</p>
             <div class="badges">
-                <span class="badge badge-green">181 tests passing</span>
+                <span class="badge badge-green">211 tests passing</span>
                 <span class="badge badge-blue">5 validations passing</span>
                 <span class="badge badge-purple">Python 3.10+</span>
             </div>
@@ -1104,6 +1105,260 @@ decompositions, ensemble_power = <span class="fn">ensemble_decompose</span>(
         </section>
 
         <!-- ============================================================ -->
+        <!-- SPECTRAL PCA -->
+        <!-- ============================================================ -->
+        <section id="spectral-pca">
+            <h2>Spectral PCA: Multivariate Decomposition</h2>
+            <p>
+                The standard pipeline processes each channel independently. When channels share
+                oscillatory sources (as in M/EEG sensor data), this ignores spatial structure and
+                produces redundant, noisier fits. <strong>Spectral PCA</strong> is an alternative
+                pathway that eigendecomposes the cross-spectral density (CSD) matrix at each frequency,
+                yielding orthogonal spatial modes whose eigenvalue spectra are real, non-negative
+                power spectra &mdash; ideal input for specparam. Fitting and separating in this
+                decorrelated basis is optimal (MMSE) and naturally deduplicates shared oscillations
+                into a single mode rather than N redundant per-channel fits.
+            </p>
+
+            <h3>Algorithm</h3>
+            <p>
+                Given multi-channel wavelet coefficients Z (n_channels, n_freqs, n_times):
+            </p>
+            <div class="pipeline">
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <h4>CSD</h4>
+                    <p>S(f) = (1/T) &Sigma;<sub>t</sub> Z(:,f,t) &middot; Z(:,f,t)<sup>H</sup> &mdash; Hermitian PSD matrix per frequency.</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <h4>Eigendecompose</h4>
+                    <p>S(f) = U(f) &Lambda;(f) U(f)<sup>H</sup> &mdash; eigenvalues &lambda;<sub>k</sub>(f) are mode power spectra.</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <h4>Project &amp; Fit</h4>
+                    <p>Z<sub>pc</sub> = U<sup>H</sup> &middot; Z &mdash; fit specparam per mode in the decorrelated PC space.</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">4</div>
+                    <h4>Weight, Project Back &amp; Subtract</h4>
+                    <p>Weight in PC space, project back to channels via U, synthesize via OLA, subtract: <code>aperiodic = original &minus; periodic</code>.</p>
+                </div>
+            </div>
+
+            <h3>Why Eigendecompose the CSD?</h3>
+            <p>
+                The CSD matrix S(f) captures both per-channel power (diagonal) and cross-channel
+                coherence (off-diagonal). Eigendecomposition finds orthogonal spatial patterns that
+                explain the most variance at each frequency. This has three key benefits:
+            </p>
+            <ul style="margin: 0 0 16px 20px; color: var(--text);">
+                <li><strong>Decorrelation:</strong> Modes are orthogonal, so specparam fits each mode's
+                    spectrum independently without cross-channel contamination.</li>
+                <li><strong>Denoising via rank reduction:</strong> Retaining only the top k modes
+                    (n_modes &lt; n_channels) discards low-variance noise modes, yielding smoother fits.</li>
+                <li><strong>Source separation:</strong> If multiple channels share a single alpha source
+                    via volume conduction, that source appears as one dominant mode rather than N
+                    redundant per-channel fits. The eigenvalue spectrum of that mode is the source's
+                    true power spectrum.</li>
+            </ul>
+            <p>
+                The eigenvalues &lambda;<sub>k</sub>(f) are real and non-negative (guaranteed by the
+                Hermitian PSD structure of the CSD), making them directly suitable as power spectra
+                for specparam fitting &mdash; no absolute-value or log corrections needed.
+            </p>
+
+            <div class="interpretation-note">
+                <strong>Mathematical connection.</strong>
+                The CSD eigendecomposition is equivalent to frequency-domain PCA. At each frequency,
+                it finds the spatial directions of maximum power. The approach is closely related to
+                DICS beamforming (Gross et al. 2001) and the spectral factorization used in Hipp et al.
+                (2012) for orthogonalized amplitude correlations. The key insight here is that the
+                eigenvalue spectra are <em>themselves</em> valid power spectra for parametric modeling.
+            </p>
+
+            <h3>Basic Usage</h3>
+<pre><code><span class="kw">import</span> numpy <span class="kw">as</span> np
+<span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> <span class="fn">spectral_pca_reconstruct</span>
+
+<span class="cm"># Multi-channel signal: (n_channels, n_samples)</span>
+signal = np.<span class="fn">stack</span>([ch1, ch2, ch3, ch4])  <span class="cm"># (4, n_samples)</span>
+
+result = <span class="fn">spectral_pca_reconstruct</span>(
+    signal, sfreq,
+    n_modes=<span class="num">None</span>,              <span class="cm"># None = all modes (no rank reduction)</span>
+    separation=<span class="str">"subtraction"</span>,  <span class="cm"># or "wiener"</span>
+    foi_start=<span class="num">2.0</span>, foi_end=<span class="num">40.0</span>,
+    bw_oct=<span class="num">0.5</span>,
+    fit_stride=<span class="num">20</span>,
+    freq_range=[<span class="num">1</span>, <span class="num">40</span>],
+    n_iter=<span class="num">5</span>,
+)
+
+<span class="cm"># Channel-space decomposition: exact additive</span>
+aperiodic = result.aperiodic     <span class="cm"># (n_channels, n_samples)</span>
+periodic = result.periodic       <span class="cm"># (n_channels, n_samples)</span>
+<span class="cm"># aperiodic + periodic == signal  (machine precision)</span>
+
+<span class="cm"># Mode-space results</span>
+<span class="fn">print</span>(<span class="str">f"Modes retained: </span>{result.n_modes}<span class="str">"</span>)
+<span class="fn">print</span>(<span class="str">f"Variance explained: </span>{result.variance_explained}<span class="str">"</span>)
+<span class="fn">print</span>(<span class="str">f"Mean r&sup2;: </span>{result.mode_fit.r_squared.<span class="fn">mean</span>():<span class="str">.3f</span>}<span class="str">"</span>)
+<span class="fn">print</span>(<span class="str">f"Frame condition: </span>{result.frame_condition:<span class="str">.3f</span>}<span class="str">"</span>)</code></pre>
+
+            <h3>Rank Reduction for Denoising</h3>
+            <p>
+                Setting <code>n_modes</code> less than <code>n_channels</code> discards low-variance
+                modes before fitting. This is particularly useful when you have many sensors
+                (e.g., 64-channel EEG) but only a few meaningful sources. The discarded modes
+                contain mostly noise, so the surviving modes yield cleaner specparam fits.
+            </p>
+<pre><code><span class="cm"># 64-channel EEG: retain top 10 modes</span>
+result = <span class="fn">spectral_pca_reconstruct</span>(
+    eeg_data, sfreq,
+    n_modes=<span class="num">10</span>,
+    separation=<span class="str">"subtraction"</span>,
+    foi_start=<span class="num">2.0</span>, foi_end=<span class="num">40.0</span>,
+    fit_stride=<span class="num">20</span>,
+    n_iter=<span class="num">5</span>,
+)
+
+<span class="cm"># Check how much variance the retained modes capture</span>
+cumvar = np.<span class="fn">cumsum</span>(result.variance_explained)
+<span class="fn">print</span>(<span class="str">f"Top 10 modes explain </span>{cumvar[-<span class="num">1</span>]*<span class="num">100</span>:<span class="str">.1f</span>}<span class="str">% of total variance"</span>)</code></pre>
+
+            <h3>Low-Level: CSD and Eigendecomposition</h3>
+            <p>
+                For custom analyses, the CSD and eigendecomposition steps are exposed as standalone
+                functions. This lets you inspect the spatial modes, compute coherence, or use
+                the eigenvalue spectra for your own parametric modeling.
+            </p>
+<pre><code><span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> (
+    <span class="fn">wavelet_decompose</span>,
+    <span class="fn">compute_csd</span>, <span class="fn">spectral_pca_decompose</span>,
+)
+
+decomp = <span class="fn">wavelet_decompose</span>(signal, sfreq, foi_start=<span class="num">2</span>, foi_end=<span class="num">40</span>)
+
+<span class="cm"># Cross-spectral density: (n_ch, n_ch, n_freqs)</span>
+csd = <span class="fn">compute_csd</span>(decomp)
+
+<span class="cm"># Eigendecompose into spatial modes</span>
+eigenvectors, eigenvalues, csd = <span class="fn">spectral_pca_decompose</span>(decomp, n_modes=<span class="num">3</span>)
+
+<span class="cm"># eigenvectors: (n_ch, n_modes, n_freqs) — spatial patterns per mode</span>
+<span class="cm"># eigenvalues:  (n_modes, n_freqs) — power spectrum per mode</span>
+
+<span class="cm"># Eigenvalue spectra are real, non-negative power spectra</span>
+<span class="fn">print</span>(<span class="str">f"Mode 0 power at each freq: </span>{eigenvalues[<span class="num">0</span>]}<span class="str">"</span>)
+<span class="fn">print</span>(<span class="str">f"All non-negative: </span>{np.<span class="fn">all</span>(eigenvalues >= <span class="num">0</span>)}<span class="str">"</span>)
+
+<span class="cm"># Variance explained per mode</span>
+total_power = eigenvalues.<span class="fn">sum</span>()
+var_explained = eigenvalues.<span class="fn">sum</span>(axis=<span class="num">1</span>) / total_power
+<span class="fn">print</span>(<span class="str">f"Variance explained: </span>{var_explained}<span class="str">"</span>)</code></pre>
+
+            <h3>Per-Mode Time-Domain Signals</h3>
+            <p>
+                The result includes per-mode periodic and aperiodic time-domain signals, synthesized
+                via OLA from the weighted PC-space coefficients. These are approximate (there is no
+                "original signal" in mode space to subtract from), but useful for inspecting what
+                each spatial mode contributes.
+            </p>
+<pre><code><span class="cm"># Per-mode signals</span>
+<span class="kw">for</span> k <span class="kw">in</span> <span class="fn">range</span>(result.n_modes):
+    mode_per_rms = np.<span class="fn">sqrt</span>(np.<span class="fn">mean</span>(result.mode_periodic[k] ** <span class="num">2</span>))
+    mode_ap_rms = np.<span class="fn">sqrt</span>(np.<span class="fn">mean</span>(result.mode_aperiodic[k] ** <span class="num">2</span>))
+    <span class="fn">print</span>(<span class="str">f"Mode </span>{k}<span class="str">: periodic RMS=</span>{mode_per_rms:<span class="str">.4f</span>}<span class="str">, "</span>
+          <span class="str">f"aperiodic RMS=</span>{mode_ap_rms:<span class="str">.4f</span>}<span class="str">, "</span>
+          <span class="str">f"var explained=</span>{result.variance_explained[k]:<span class="str">.3f</span>}<span class="str">"</span>)
+
+<span class="cm"># Eigenvectors at a specific frequency give the spatial pattern</span>
+alpha_idx = np.<span class="fn">argmin</span>(np.<span class="fn">abs</span>(result.decomposition.foi - <span class="num">10.0</span>))
+spatial_pattern = result.eigenvectors[:, <span class="num">0</span>, alpha_idx]  <span class="cm"># mode 0 at 10 Hz</span>
+<span class="fn">print</span>(<span class="str">f"Mode 0 spatial pattern at 10 Hz: </span>{np.<span class="fn">abs</span>(spatial_pattern)}<span class="str">"</span>)</code></pre>
+
+            <h3>Spectral PCA vs. Per-Channel Processing</h3>
+            <table>
+                <thead>
+                    <tr><th>Aspect</th><th>Per-Channel</th><th>Spectral PCA</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Fitting</td>
+                        <td>Independent specparam fit per channel</td>
+                        <td>Specparam fit per spatial mode (decorrelated)</td>
+                    </tr>
+                    <tr>
+                        <td>Shared oscillations</td>
+                        <td>Fitted N times (once per channel)</td>
+                        <td>Fitted once (captured by dominant mode)</td>
+                    </tr>
+                    <tr>
+                        <td>Noise modes</td>
+                        <td>All channels fitted, including noisy ones</td>
+                        <td>Discardable via <code>n_modes</code> rank reduction</td>
+                    </tr>
+                    <tr>
+                        <td>Spatial information</td>
+                        <td>None &mdash; each channel independent</td>
+                        <td>Eigenvectors give spatial patterns per mode/frequency</td>
+                    </tr>
+                    <tr>
+                        <td>When to use</td>
+                        <td>Few channels, no shared sources, or channel-specific analysis needed</td>
+                        <td>Many channels with shared oscillatory sources (e.g., sensor-level M/EEG)</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Output: SpectralPCAResult</h3>
+            <table>
+                <thead>
+                    <tr><th>Field</th><th>Shape</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>aperiodic</code></td><td><code>(n_ch, n_samples)</code></td><td>Per-channel aperiodic signal</td></tr>
+                    <tr><td><code>periodic</code></td><td><code>(n_ch, n_samples)</code></td><td>Per-channel periodic signal</td></tr>
+                    <tr><td><code>eigenvectors</code></td><td><code>(n_ch, n_modes, n_freqs)</code></td><td>Complex spatial modes per frequency</td></tr>
+                    <tr><td><code>eigenvalues</code></td><td><code>(n_modes, n_freqs)</code></td><td>Real, non-negative eigenvalue spectra</td></tr>
+                    <tr><td><code>mode_fit</code></td><td><code>TimeResolvedFit</code></td><td>Specparam fit in PC space (modes as channels)</td></tr>
+                    <tr><td><code>mode_periodic</code></td><td><code>(n_modes, n_samples)</code></td><td>Per-mode periodic signal (approximate)</td></tr>
+                    <tr><td><code>mode_aperiodic</code></td><td><code>(n_modes, n_samples)</code></td><td>Per-mode aperiodic signal (approximate)</td></tr>
+                    <tr><td><code>n_modes</code></td><td><code>int</code></td><td>Number of modes retained</td></tr>
+                    <tr><td><code>variance_explained</code></td><td><code>(n_modes,)</code></td><td>Fraction of total power per mode</td></tr>
+                    <tr><td><code>csd</code></td><td><code>(n_ch, n_ch, n_freqs)</code></td><td>Cross-spectral density matrix</td></tr>
+                    <tr><td><code>energy_ratio</code></td><td><code>float</code></td><td>||aperiodic||&sup2; / ||signal||&sup2;</td></tr>
+                    <tr><td><code>frame_condition</code></td><td><code>float</code></td><td>OLA frame condition B/A (&asymp; 1.0 = tight)</td></tr>
+                    <tr><td><code>separation</code></td><td><code>str</code></td><td><code>"subtraction"</code> or <code>"wiener"</code></td></tr>
+                </tbody>
+            </table>
+
+            <h3>Important Caveats</h3>
+            <p>
+                <strong>Time-averaged CSD.</strong>
+                The CSD is averaged over the entire signal duration, producing fixed spatial filters.
+                Power is still time-varying (specparam runs on instantaneous PC-space power), but
+                the spatial modes themselves are stationary. This is the standard approach in the
+                literature (Hipp et al. 2012) and is appropriate when the sensor-to-source mapping
+                doesn't change within a recording. Time-resolved CSD is a future extension.
+            </p>
+            <p>
+                <strong>Mode signals are approximate.</strong>
+                There is no "original signal" in mode space &mdash; only the channel-space signal
+                is real. Per-mode periodic and aperiodic signals are synthesized from weighted
+                PC-space coefficients via OLA, which is inherently approximate. The channel-space
+                outputs (aperiodic + periodic = original) are exact.
+            </p>
+            <p>
+                <strong>State-space separation not supported.</strong>
+                The multi-channel Kalman extension is not yet implemented. Use <code>"subtraction"</code>
+                or <code>"wiener"</code> for spectral PCA decomposition.
+            </p>
+        </section>
+
+        <!-- ============================================================ -->
         <!-- ADVANCED WORKFLOWS -->
         <!-- ============================================================ -->
         <section id="workflows">
@@ -1374,6 +1629,10 @@ offsets = np.<span class="fn">where</span>(diff_mask == -<span class="num">1</sp
                     <div class="desc">Multi-epoch ensemble estimation &amp; evoked separation</div>
                 </div>
                 <div class="arch-file">
+                    <div class="name">spectral_pca.py</div>
+                    <div class="desc">CSD eigendecomposition: multivariate decomposition via spatial modes</div>
+                </div>
+                <div class="arch-file">
                     <div class="name">diagnostics.py</div>
                     <div class="desc">Visualization helpers</div>
                 </div>
@@ -1436,7 +1695,7 @@ offsets = np.<span class="fn">where</span>(diff_mask == -<span class="num">1</sp
         <!-- ============================================================ -->
         <section>
             <h2>Testing</h2>
-<pre><code>pytest tests/ -v  <span class="cm"># 181 tests</span></code></pre>
+<pre><code>pytest tests/ -v  <span class="cm"># 211 tests</span></code></pre>
 
             <h3>Run Validation</h3>
 <pre><code>python -m validation.sim_stationary

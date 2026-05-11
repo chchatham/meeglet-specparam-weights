@@ -190,5 +190,15 @@ reconstruction idea from specparam-fft-weights.
 - [x] Evoked separation via trial-averaged coefficients
 - [x] Tests in test_epochs.py (25 tests)
 
+### Phase 21: Spectral PCA Decomposition ✅
+- [x] `spectral_pca.py`: `compute_csd()` — NaN-aware CSD from multi-channel wavelet coefficients
+- [x] `spectral_pca.py`: `spectral_pca_decompose()` — eigendecompose CSD, sign-align eigenvectors
+- [x] `spectral_pca.py`: `spectral_pca_reconstruct()` — full pipeline: eigen → fit → weight → project → synthesize
+- [x] Subtraction and Wiener separation in PC space
+- [x] `SpectralPCAResult` dataclass with eigenvectors, eigenvalues, mode fits, variance explained
+- [x] `__init__.py` exports: SpectralPCAResult, compute_csd, spectral_pca_decompose, spectral_pca_reconstruct
+- [x] Tests: 30 tests in test_spectral_pca.py
+- [x] All 211 tests pass (181 + 30 new)
+
 ## Current Focus
-All phases complete. 181 tests passing.
+All 21 phases complete. 211 tests passing.
