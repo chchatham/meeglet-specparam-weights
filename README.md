@@ -24,15 +24,19 @@ Then fit specparam to the instantaneous power profile |Z(f, t)|² at each time s
 
 For the **periodic component**: compute excess weights w(f, t) = √(max(0, 1 - P_aperiodic / |Z|²)), which extract only the power above the 1/f floor at each time-frequency point. Apply these to the complex coefficients and synthesize via overlap-add.
 
-For the **aperiodic component**: subtract the periodic reconstruction from the original signal. This guarantees `original = aperiodic + periodic` exactly and preserves the full 1/f power at peak frequencies — unlike the Wiener filter approach, which attenuates the aperiodic at frequencies where oscillations are present.
+For the **aperiodic component**: three separation strategies are available:
 
-The result: aperiodic and periodic time-domain signals that track the dynamics of the original signal, with a principled additive decomposition.
+- **Subtraction** (default, `separation="subtraction"`): subtract the periodic reconstruction from the original signal. Guarantees `original = aperiodic + periodic` exactly. Best waveform correlation (~0.95) for time-domain analyses.
+- **Wiener** (`separation="wiener"`): scale coefficients by √(P_ap/|Z|²). Best spectral shape fidelity, but contaminates the waveform with periodic phase structure.
+- **State-space** (`separation="state_space"`): Kalman smoother with damped oscillators + AR(p) aperiodic. Provides explicit oscillator components for burst detection and timing analysis.
+
+The result: aperiodic and periodic time-domain signals that track the dynamics of the original signal, with each strategy offering different trade-offs for different analysis goals.
 
 ## Installation
 
 ```bash
 pip install numpy scipy meeglet specparam matplotlib
-git clone https://github.com/[you]/meeglet-specparam-weights.git
+git clone https://github.com/chchatham/meeglet-specparam-weights.git
 cd meeglet-specparam-weights
 pip install -e ".[dev]"
 ```
@@ -64,9 +68,23 @@ aperiodic_signal = result.reconstruction
 oscillatory_residual = result.residual
 
 # Check fit quality over time
+print(f"Method: {result.method}")  # "subtraction"
 print(f"Mean r²: {result.fit.r_squared.mean():.3f}")
 print(f"Energy ratio: {result.energy_ratio:.3f}")
 print(f"Frame condition: {result.frame_condition:.3f}")  # B/A ≈ 1.0 = tight frame
+
+# Try alternative separation strategies
+result_wiener = meeglet_specparam_reconstruct(
+    signal, sfreq, component='aperiodic', separation='wiener',
+    foi_start=2, foi_end=50, bw_oct=0.5,
+    fit_stride=50, freq_range=[1, 50], n_iter=5,
+)
+
+result_ss = meeglet_specparam_reconstruct(
+    signal, sfreq, component='aperiodic', separation='state_space',
+    foi_start=2, foi_end=50, bw_oct=0.5,
+    fit_stride=50, freq_range=[1, 50], n_iter=5,
+)
 ```
 
 ## Diagnostics
@@ -77,6 +95,7 @@ from meeglet_specparam_weights import (
     plot_weight_surface,
     plot_decomposition,
     plot_parameter_trajectories,
+    plot_decomposition_bias,
     plot_aperiodic_coupling,
 )
 
@@ -84,6 +103,7 @@ plot_fit_quality(result)            # r² over time
 plot_weight_surface(result)         # 2D weight heatmap (freq × time)
 plot_decomposition(result)          # original / reconstruction / residual
 plot_parameter_trajectories(result) # exponent, offset, peak CFs over time
+plot_decomposition_bias(result)     # power bias factor across frequencies
 # plot_aperiodic_coupling(coupling)  # coupling heatmap (see Coupling section)
 ```
 
@@ -349,9 +369,10 @@ See `CLAUDE.md` for the full architecture and design principles. The key decisio
 
 1. Wavelet coefficients (not FFT bins) are the canonical representation.
 2. Phase is preserved exactly — periodic extraction uses real, non-negative weights. The aperiodic is defined by time-domain subtraction (`original - periodic`), guaranteeing exact additive decomposition and preserving the full 1/f power at peak frequencies.
-3. specparam does the fitting; we do the bridging.
-4. Log-frequency is the native grid (with interpolation to linear grids for specparam fitting).
-5. Energy accounting is transparent, not hidden.
+3. Multiple separation strategies — subtraction (waveform fidelity), Wiener (spectral fidelity), state-space (temporal structure via Kalman smoother) — each suited to different analysis goals.
+4. specparam does the fitting; we do the bridging.
+5. Log-frequency is the native grid (with interpolation to linear grids for specparam fitting).
+6. Energy accounting is transparent, not hidden.
 
 ## Validation results
 
@@ -362,9 +383,12 @@ All validation uses synthetic signals with known ground truth. See `validation/R
 | Stationary equivalence | Correlation with FFT-weights | ~0.55 | > 0.40 |
 | Stationary equivalence | Alpha preservation at 1/f | < 50x | < 50x |
 | Non-stationary tracking | Exponent trajectory correlation | 0.92 ± 0.09 | > 0.85 |
-| Non-stationary tracking | Alpha on/off contrast ratio | 12.8 ± 5.3 | > 3.0 |
-| Transient detection | Beta burst detection rate | 90% ± 9% | > 80% |
-| SNR robustness | r² at -10 dB SNR | 0.974 | > 0.85 |
+| Non-stationary tracking | Alpha on/off contrast ratio | 7.2 ± 2.4 | > 3.0 |
+| Transient detection | Beta burst detection rate | 96% ± 5% | > 80% |
+| SNR robustness | r² at -10 dB SNR | 0.969 | > 0.85 |
+| Ground truth (subtraction) | Waveform correlation | 0.95 | — |
+| Ground truth (Wiener) | Spectral shape error | 0.53 | — |
+| Ground truth (state-space) | Waveform correlation | 0.61 | — |
 
 Run validation:
 ```bash
@@ -372,12 +396,13 @@ python -m validation.sim_stationary
 python -m validation.sim_nonstationary
 python -m validation.sim_transient
 python -m validation.sim_noise_sweep
+python -m validation.sim_ground_truth  # head-to-head method comparison
 ```
 
 ## Testing
 
 ```bash
-pytest tests/ -v  # 112 tests
+pytest tests/ -v  # 156 tests
 ```
 
 ## Citations

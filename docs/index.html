@@ -279,6 +279,7 @@
             <span class="nav-title">msw</span>
             <a href="#overview">Overview</a>
             <a href="#results">Results</a>
+            <a href="#separation">Separation</a>
             <a href="#validation">Validation</a>
             <a href="#tutorial">Tutorial</a>
             <a href="#multichannel">Multi-Channel</a>
@@ -293,8 +294,8 @@
             <h1>meeglet-specparam-<span>weights</span></h1>
             <p>Time-resolved aperiodic/periodic decomposition of M/EEG signals via wavelet-domain parametric modeling and subtraction.</p>
             <div class="badges">
-                <span class="badge badge-green">112 tests passing</span>
-                <span class="badge badge-blue">4 validations passing</span>
+                <span class="badge badge-green">156 tests passing</span>
+                <span class="badge badge-blue">5 validations passing</span>
                 <span class="badge badge-purple">Python 3.10+</span>
             </div>
         </header>
@@ -308,16 +309,21 @@
                 This tool combines <a href="https://github.com/nbara/python-meeglet">meeglet</a>'s Morlet wavelets
                 with <a href="https://github.com/fooof-tools/fooof">specparam</a>'s parametric spectral modeling
                 to decompose neural signals into aperiodic and periodic time-domain components.
-            </p>
-            <p>
-                The method uses a <strong>subtraction approach</strong>: it first extracts the periodic excess
-                above the 1/f floor via bounded wavelet-domain weights, synthesizes the periodic signal,
-                then defines the aperiodic as <code>original &minus; periodic</code>. This guarantees
-                an exact additive decomposition and preserves the full 1/f power at peak frequencies.
                 Unlike FFT-based approaches that assume stationarity, it tracks spectral dynamics:
                 drifting aperiodic slopes, transient oscillatory bursts, and time-varying peak amplitudes
                 are all resolved in the output.
             </p>
+            <p>
+                Three <strong>separation strategies</strong> are available for the aperiodic component:
+            </p>
+            <ul style="margin: 0 0 16px 20px; color: var(--text);">
+                <li><strong>Subtraction</strong> (default): extracts periodic excess, subtracts from original.
+                    Best waveform correlation (~0.95). Guarantees <code>original = aperiodic + periodic</code> exactly.</li>
+                <li><strong>Wiener</strong>: scales coefficients by &radic;(P<sub>ap</sub>/|Z|&sup2;).
+                    Best spectral shape fidelity but contaminates waveform with periodic phase.</li>
+                <li><strong>State-space</strong>: Kalman smoother with damped oscillators + AR(p) aperiodic.
+                    Provides explicit oscillator components for burst detection and timing analysis.</li>
+            </ul>
 
             <div class="figure-block">
                 <img src="figures/decomposition.png" alt="Signal decomposition: original signal separated into aperiodic, periodic, and residual components">
@@ -460,6 +466,73 @@
         </section>
 
         <!-- ============================================================ -->
+        <!-- SEPARATION STRATEGIES -->
+        <!-- ============================================================ -->
+        <section id="separation">
+            <h2>Separation Strategies</h2>
+            <p>
+                Separating a mixed signal into aperiodic and periodic components at peak frequencies
+                is fundamentally underdetermined from a single observation. Each strategy makes a
+                different trade-off. Use the <code>separation</code> parameter to choose:
+            </p>
+
+            <h3>Subtraction (default)</h3>
+            <p>
+                <code>separation="subtraction"</code> &mdash;
+                Extracts the periodic excess via bounded weights w<sub>excess</sub> = &radic;(1 &minus; w<sub>ap</sub>&sup2;),
+                synthesizes it, and subtracts from the original. Guarantees <code>original = aperiodic + periodic</code>
+                at machine precision. Best for <strong>time-domain waveform analyses</strong> where the
+                temporal shape of the aperiodic must be preserved (waveform correlation ~0.95).
+                The trade-off: aperiodic power at peak frequencies is suppressed.
+            </p>
+
+            <h3>Wiener Filter</h3>
+            <p>
+                <code>separation="wiener"</code> &mdash;
+                Scales wavelet coefficients by &radic;(P<sub>ap</sub>/|Z|&sup2;). Preserves the correct
+                aperiodic <em>power</em> at all frequencies (spectral shape error 0.38&ndash;0.75).
+                Best for <strong>spectral-domain analyses</strong> where the PSD shape matters.
+                The trade-off: the waveform is contaminated by periodic phase structure
+                (waveform correlation ~0.34), so the aperiodic time series is unreliable for
+                event-related or connectivity analyses.
+            </p>
+
+            <h3>State-Space (Kalman Smoother)</h3>
+            <p>
+                <code>separation="state_space"</code> &mdash;
+                Models the signal as a superposition of K damped oscillators (from specparam peaks)
+                and an AR(p) process (from specparam aperiodic exponent). Uses the Rauch-Tung-Striebel
+                smoother for optimal bidirectional estimation. The oscillator components are available
+                directly for <strong>burst detection</strong> and <strong>oscillator timing</strong> analysis.
+                The trade-off: the narrowband oscillator absorbs all power near peak frequencies
+                (including the aperiodic contribution), so the aperiodic component also has
+                suppressed power at those frequencies.
+            </p>
+
+            <h3>State-Space: Direct Access to Oscillator Components</h3>
+<pre><code><span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> (
+    <span class="fn">wavelet_decompose</span>, <span class="fn">time_resolved_fit</span>,
+    <span class="fn">state_space_decompose</span>,
+)
+
+decomp = <span class="fn">wavelet_decompose</span>(signal, sfreq, foi_start=<span class="num">2</span>, foi_end=<span class="num">50</span>)
+fit = <span class="fn">time_resolved_fit</span>(decomp, fit_stride=<span class="num">50</span>, power_window=<span class="num">400</span>)
+
+<span class="cm"># Full decomposition with access to individual oscillators</span>
+ss = <span class="fn">state_space_decompose</span>(signal, sfreq, fit)
+
+<span class="fn">print</span>(<span class="str">f"Oscillators: </span>{ss.model.n_oscillators}<span class="str">"</span>)
+<span class="fn">print</span>(<span class="str">f"Center freqs: </span>{ss.model.center_freqs}<span class="str"> Hz"</span>)
+<span class="fn">print</span>(<span class="str">f"AR order: </span>{ss.model.ar_order}<span class="str">"</span>)
+<span class="fn">print</span>(<span class="str">f"Log-likelihood: </span>{ss.log_likelihood:<span class="str">.1f</span>}<span class="str">"</span>)
+
+<span class="cm"># Individual components (all sum to original signal)</span>
+alpha_oscillator = ss.oscillators[<span class="num">0</span>]       <span class="cm"># (n_samples,)</span>
+aperiodic = ss.aperiodic                    <span class="cm"># (n_samples,)</span>
+noise = ss.measurement_noise                <span class="cm"># (n_samples,)</span></code></pre>
+        </section>
+
+        <!-- ============================================================ -->
         <!-- VALIDATION -->
         <!-- ============================================================ -->
         <section id="validation">
@@ -472,14 +545,14 @@
 
             <div class="validation-grid">
                 <div class="val-card">
-                    <h4>Alpha Preservation</h4>
-                    <div class="metric">&lt; 50x</div>
-                    <div class="label">Aperiodic 10 Hz power within 50x of 1/f floor</div>
-                </div>
-                <div class="val-card">
                     <h4>Exact Decomposition</h4>
                     <div class="metric">= original</div>
-                    <div class="label">aperiodic + periodic = original (machine precision)</div>
+                    <div class="label">aperiodic + periodic = original (machine precision, subtraction)</div>
+                </div>
+                <div class="val-card">
+                    <h4>Waveform Fidelity</h4>
+                    <div class="metric">r = 0.95</div>
+                    <div class="label">Subtraction: correlation with true aperiodic waveform</div>
                 </div>
                 <div class="val-card">
                     <h4>Exponent Tracking</h4>
@@ -488,12 +561,12 @@
                 </div>
                 <div class="val-card">
                     <h4>Alpha On/Off Contrast</h4>
-                    <div class="metric">12.8x</div>
+                    <div class="metric">7.2x</div>
                     <div class="label">Power ratio between on and off blocks</div>
                 </div>
                 <div class="val-card">
                     <h4>Beta Burst Detection</h4>
-                    <div class="metric">90%</div>
+                    <div class="metric">96%</div>
                     <div class="label">200ms bursts detected in periodic output</div>
                 </div>
                 <div class="val-card">
@@ -501,6 +574,52 @@
                     <div class="metric">r&sup2; &gt; 0.95</div>
                     <div class="label">Fit quality maintained down to &minus;10 dB SNR</div>
                 </div>
+            </div>
+
+            <!-- Ground truth method comparison -->
+            <hr class="section-divider">
+            <h3>Ground Truth: Method Comparison</h3>
+            <p>
+                Head-to-head comparison of all three separation strategies against signals with
+                independently known aperiodic and periodic components. The validation sweeps the
+                periodic power fraction from 0.1 to 0.9 and measures three metrics against ground truth.
+            </p>
+
+            <table>
+                <thead>
+                    <tr><th>Metric (best &rarr;)</th><th>Subtraction</th><th>Wiener</th><th>State-Space</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Waveform correlation (&rarr; 1.0)</td>
+                        <td><strong style="color: var(--accent2);">0.95</strong></td>
+                        <td>0.34</td>
+                        <td>0.61</td>
+                    </tr>
+                    <tr>
+                        <td>Spectral shape error (&rarr; 0.0)</td>
+                        <td>1.07</td>
+                        <td><strong style="color: var(--accent2);">0.53</strong></td>
+                        <td>2.62</td>
+                    </tr>
+                    <tr>
+                        <td>Alpha power ratio (&rarr; 1.0)</td>
+                        <td>0.01</td>
+                        <td><strong style="color: var(--accent2);">1.72</strong></td>
+                        <td>0.001</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="interpretation-note">
+                <strong>Choosing a method.</strong>
+                Each method excels at a different aspect. <strong>Subtraction</strong> preserves the
+                aperiodic waveform shape best (r=0.95) and guarantees exact additive decomposition, making
+                it ideal for time-domain analyses. <strong>Wiener</strong> preserves spectral fidelity and
+                correct power at peak frequencies, suited for spectral-domain analyses.
+                <strong>State-space</strong> provides explicit oscillator components for burst detection
+                and timing analysis. No method perfectly recovers both the aperiodic waveform AND its
+                correct spectral shape at peak frequencies on single-trial data &mdash; this is a
+                fundamental limitation of source separation from a single mixed observation.
             </div>
 
             <!-- Non-stationary: exponent tracking -->
@@ -635,7 +754,22 @@ aperiodic = result.reconstruction   <span class="cm"># aperiodic time-domain sig
 periodic = result.residual           <span class="cm"># periodic excess (aperiodic + periodic = original)</span>
 <span class="fn">print</span>(<span class="str">f"Method: </span>{result.method}<span class="str">"</span>)              <span class="cm"># "subtraction"</span>
 <span class="fn">print</span>(<span class="str">f"Mean r&sup2;: </span>{result.fit.r_squared.<span class="fn">mean</span>():<span class="str">.3f</span>}<span class="str">"</span>)
-<span class="fn">print</span>(<span class="str">f"Frame condition: </span>{result.frame_condition:<span class="str">.3f</span>}<span class="str">"</span>)  <span class="cm"># B/A &asymp; 1.0 = tight frame</span></code></pre>
+<span class="fn">print</span>(<span class="str">f"Frame condition: </span>{result.frame_condition:<span class="str">.3f</span>}<span class="str">"</span>)  <span class="cm"># B/A &asymp; 1.0 = tight frame</span>
+
+<span class="cm"># Try alternative separation strategies</span>
+result_wiener = <span class="fn">meeglet_specparam_reconstruct</span>(
+    signal, sfreq,
+    component=<span class="str">"aperiodic"</span>, separation=<span class="str">"wiener"</span>,
+    foi_start=<span class="num">2.0</span>, foi_end=<span class="num">50.0</span>, bw_oct=<span class="num">0.5</span>,
+    fit_stride=<span class="num">50</span>, freq_range=[<span class="num">1</span>, <span class="num">50</span>], n_iter=<span class="num">5</span>,
+)
+
+result_ss = <span class="fn">meeglet_specparam_reconstruct</span>(
+    signal, sfreq,
+    component=<span class="str">"aperiodic"</span>, separation=<span class="str">"state_space"</span>,
+    foi_start=<span class="num">2.0</span>, foi_end=<span class="num">50.0</span>, bw_oct=<span class="num">0.5</span>,
+    fit_stride=<span class="num">50</span>, freq_range=[<span class="num">1</span>, <span class="num">50</span>], n_iter=<span class="num">5</span>,
+)</code></pre>
 
             <h3>Extract the Periodic Component</h3>
 <pre><code><span class="cm"># Same signal, extract oscillatory content instead</span>
@@ -659,12 +793,14 @@ periodic = result_periodic.reconstruction  <span class="cm"># oscillatory signal
     <span class="fn">plot_decomposition</span>,
     <span class="fn">plot_parameter_trajectories</span>,
     <span class="fn">plot_aperiodic_coupling</span>,
+    <span class="fn">plot_decomposition_bias</span>,
 )
 
 <span class="fn">plot_fit_quality</span>(result)            <span class="cm"># r&sup2; over time</span>
 <span class="fn">plot_weight_surface</span>(result)         <span class="cm"># 2D weight heatmap (freq &times; time)</span>
 <span class="fn">plot_decomposition</span>(result)          <span class="cm"># original / reconstruction / residual</span>
 <span class="fn">plot_parameter_trajectories</span>(result) <span class="cm"># exponent, offset, peak CFs</span>
+<span class="fn">plot_decomposition_bias</span>(result)     <span class="cm"># power bias factor across frequencies</span>
 <span class="cm"># plot_aperiodic_coupling(coupling)  # coupling heatmap (see Coupling section)</span></code></pre>
 
             <h3>Key Parameters</h3>
@@ -680,7 +816,7 @@ periodic = result_periodic.reconstruction  <span class="cm"># oscillatory signal
                     <tr><td><code>power_window</code></td><td><code>None</code></td><td>Samples to average power over before fitting</td></tr>
                     <tr><td><code>n_iter</code></td><td><code>1</code></td><td>Iterative synthesis refinement (use 5 for best quality)</td></tr>
                     <tr><td><code>smooth_sigma</code></td><td><code>None</code></td><td>Gaussian smoothing of parameter trajectories</td></tr>
-                    <tr><td><code>aperiodic_method</code></td><td><code>"subtraction"</code></td><td><code>"subtraction"</code> (default) or <code>"wiener"</code> (legacy). Only affects <code>component="aperiodic"</code></td></tr>
+                    <tr><td><code>separation</code></td><td><code>"subtraction"</code></td><td>Separation strategy for <code>component="aperiodic"</code>: <code>"subtraction"</code>, <code>"wiener"</code>, or <code>"state_space"</code></td></tr>
                     <tr><td><code>eps</code></td><td><code>1e-20</code></td><td>Floor for weight denominator</td></tr>
                     <tr><td><code>max_weight</code></td><td><code>100.0</code></td><td>Maximum allowed weight</td></tr>
                 </tbody>
@@ -1111,6 +1247,14 @@ offsets = np.<span class="fn">where</span>(diff_mask == -<span class="num">1</sp
                     <div class="desc">Weighted OLA with iterative refinement</div>
                 </div>
                 <div class="arch-file">
+                    <div class="name">separation.py</div>
+                    <div class="desc">Separation strategies: subtraction, Wiener, bias diagnostics</div>
+                </div>
+                <div class="arch-file">
+                    <div class="name">state_space.py</div>
+                    <div class="desc">Kalman smoother: damped oscillators + AR(p) aperiodic</div>
+                </div>
+                <div class="arch-file">
                     <div class="name">pipeline.py</div>
                     <div class="desc">End-to-end: signal &rarr; ReconstructionResult</div>
                 </div>
@@ -1181,13 +1325,14 @@ offsets = np.<span class="fn">where</span>(diff_mask == -<span class="num">1</sp
         <!-- ============================================================ -->
         <section>
             <h2>Testing</h2>
-<pre><code>pytest tests/ -v  <span class="cm"># 112 tests</span></code></pre>
+<pre><code>pytest tests/ -v  <span class="cm"># 156 tests</span></code></pre>
 
             <h3>Run Validation</h3>
 <pre><code>python -m validation.sim_stationary
 python -m validation.sim_nonstationary
 python -m validation.sim_transient
-python -m validation.sim_noise_sweep</code></pre>
+python -m validation.sim_noise_sweep
+python -m validation.sim_ground_truth  <span class="cm"># head-to-head method comparison</span></code></pre>
 
             <h3>Regenerate Figures</h3>
 <pre><code>python docs/generate_figures.py</code></pre>
