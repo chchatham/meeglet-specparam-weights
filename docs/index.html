@@ -284,6 +284,7 @@
             <a href="#tutorial">Tutorial</a>
             <a href="#multichannel">Multi-Channel</a>
             <a href="#coupling">Coupling</a>
+            <a href="#epochs">Multi-Epoch</a>
             <a href="#workflows">Advanced Workflows</a>
             <a href="#architecture">Architecture</a>
         </div>
@@ -294,7 +295,7 @@
             <h1>meeglet-specparam-<span>weights</span></h1>
             <p>Time-resolved aperiodic/periodic decomposition of M/EEG signals via wavelet-domain parametric modeling and subtraction.</p>
             <div class="badges">
-                <span class="badge badge-green">156 tests passing</span>
+                <span class="badge badge-green">181 tests passing</span>
                 <span class="badge badge-blue">5 validations passing</span>
                 <span class="badge badge-purple">Python 3.10+</span>
             </div>
@@ -992,6 +993,117 @@ virtual_coeffs, eff_nyq = <span class="fn">aperiodic_virtual_channels</span>(fit
         </section>
 
         <!-- ============================================================ -->
+        <!-- MULTI-EPOCH -->
+        <!-- ============================================================ -->
+        <section id="epochs">
+            <h2>Multi-Epoch Ensemble Estimation</h2>
+            <p>
+                Single-trial wavelet power is noisy (&chi;&sup2;(2) per time-frequency bin). For epoched
+                M/EEG data, averaging power across trials before fitting specparam yields much more
+                stable aperiodic/periodic parameter estimates. The ensemble fit is then applied to each
+                individual epoch for per-trial reconstruction.
+            </p>
+
+            <h3>Pipeline</h3>
+            <div class="pipeline">
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <h4>Decompose Each Epoch</h4>
+                    <p>Wavelet-decompose every epoch independently &rarr; Z<sub>k</sub>(f,t).</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <h4>Average Power</h4>
+                    <p>Compute trial-averaged |Z|&sup2; across epochs for a stable power estimate.</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <h4>Ensemble Fit</h4>
+                    <p>Fit specparam to the averaged power &rarr; stable aperiodic/periodic parameters.</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">4</div>
+                    <h4>Per-Epoch Reconstruct</h4>
+                    <p>Apply ensemble fit to each epoch&rsquo;s coefficients via the chosen separation strategy.</p>
+                </div>
+            </div>
+
+            <h3>Basic Usage</h3>
+<pre><code><span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> <span class="fn">meeglet_specparam_reconstruct_epochs</span>
+
+<span class="cm"># epochs: (n_epochs, n_samples) array</span>
+result = <span class="fn">meeglet_specparam_reconstruct_epochs</span>(
+    epochs, sfreq,
+    separation=<span class="str">"subtraction"</span>,
+    foi_start=<span class="num">2.0</span>, foi_end=<span class="num">40.0</span>,
+    bw_oct=<span class="num">0.5</span>,
+    fit_stride=<span class="num">25</span>,
+    freq_range=[<span class="num">1</span>, <span class="num">40</span>],
+    n_iter=<span class="num">5</span>,
+)
+
+<span class="cm"># Per-epoch decomposition</span>
+aperiodic = result.aperiodic    <span class="cm"># (n_epochs, n_samples)</span>
+periodic = result.periodic      <span class="cm"># (n_epochs, n_samples)</span>
+<span class="cm"># aperiodic[k] + periodic[k] == epochs[k]  (machine precision)</span>
+
+<span class="cm"># Stable ensemble parameters</span>
+exponent = result.ensemble_fit.aperiodic_params[:, <span class="num">1</span>]
+r_squared = result.ensemble_fit.r_squared
+<span class="fn">print</span>(<span class="str">f"Mean r&sup2;: </span>{r_squared.<span class="fn">mean</span>():<span class="str">.3f</span>}<span class="str">"</span>)</code></pre>
+
+            <h3>Evoked Separation</h3>
+            <p>
+                With <code>separate_evoked=True</code>, trial-averaged wavelet coefficients (phase-locked
+                activity / ERPs) are subtracted before fitting. The evoked signal is synthesized and
+                returned separately; only the induced (non-phase-locked) part is decomposed into
+                aperiodic and periodic components.
+            </p>
+<pre><code>result = <span class="fn">meeglet_specparam_reconstruct_epochs</span>(
+    epochs, sfreq,
+    separate_evoked=<span class="num">True</span>,
+    separation=<span class="str">"subtraction"</span>,
+    n_iter=<span class="num">5</span>,
+)
+
+evoked = result.evoked          <span class="cm"># (n_samples,) — phase-locked signal</span>
+aperiodic = result.aperiodic    <span class="cm"># (n_epochs, n_samples) — induced aperiodic</span>
+periodic = result.periodic      <span class="cm"># (n_epochs, n_samples) — induced periodic</span>
+
+<span class="cm"># Decomposition of the induced part is exact:</span>
+<span class="cm"># aperiodic[k] + periodic[k] == epochs[k] - evoked</span></code></pre>
+
+            <h3>Low-Level: Ensemble Decompose</h3>
+            <p>
+                For custom workflows, <code>ensemble_decompose()</code> returns the per-epoch wavelet
+                decompositions and trial-averaged power without fitting or reconstruction.
+            </p>
+<pre><code><span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> <span class="fn">ensemble_decompose</span>
+
+decompositions, ensemble_power = <span class="fn">ensemble_decompose</span>(
+    epochs, sfreq, foi_start=<span class="num">2</span>, foi_end=<span class="num">40</span>,
+)
+<span class="cm"># decompositions: list[WaveletDecomposition], one per epoch</span>
+<span class="cm"># ensemble_power: (n_freqs, n_times) — trial-averaged |Z|&sup2;</span></code></pre>
+
+            <h3>Output: EpochDecompositionResult</h3>
+            <table>
+                <thead>
+                    <tr><th>Field</th><th>Shape</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>aperiodic</code></td><td><code>(n_epochs, n_samples)</code></td><td>Per-epoch aperiodic signal</td></tr>
+                    <tr><td><code>periodic</code></td><td><code>(n_epochs, n_samples)</code></td><td>Per-epoch periodic signal</td></tr>
+                    <tr><td><code>evoked</code></td><td><code>(n_samples,)</code> or <code>None</code></td><td>Trial-averaged signal (if <code>separate_evoked=True</code>)</td></tr>
+                    <tr><td><code>ensemble_fit</code></td><td><code>TimeResolvedFit</code></td><td>Fit from trial-averaged power</td></tr>
+                    <tr><td><code>ensemble_power</code></td><td><code>(n_freqs, n_times)</code></td><td>Trial-averaged wavelet power</td></tr>
+                    <tr><td><code>separation</code></td><td><code>str</code></td><td>Strategy used: <code>"subtraction"</code>, <code>"wiener"</code>, or <code>"state_space"</code></td></tr>
+                    <tr><td><code>energy_ratios</code></td><td><code>(n_epochs,)</code></td><td>Per-epoch energy ratio</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- ============================================================ -->
         <!-- ADVANCED WORKFLOWS -->
         <!-- ============================================================ -->
         <section id="workflows">
@@ -1059,42 +1171,37 @@ asymmetry = np.<span class="fn">mean</span>(peak_amplitudes) / np.<span class="f
                 Traditional 1/f-corrected ERP analysis fits one specparam model per epoch and subtracts
                 a static aperiodic signal. But spectral structure often changes <em>within</em> a trial &mdash;
                 alpha desynchronizes after stimulus onset, aperiodic slopes change within a trial.
-                The wavelet method resolves these within-trial dynamics, giving you a time-varying
-                periodic power envelope for each trial rather than a single number.
+                The ensemble epoch pipeline averages power across trials for a stable fit, separates
+                the evoked (phase-locked) response, and gives you per-trial induced periodic envelopes
+                rather than a single number per epoch.
             </p>
 <pre><code><span class="kw">import</span> numpy <span class="kw">as</span> np
-<span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> <span class="fn">meeglet_specparam_reconstruct</span>
+<span class="kw">from</span> meeglet_specparam_weights <span class="kw">import</span> <span class="fn">meeglet_specparam_reconstruct_epochs</span>
 <span class="kw">from</span> scipy.signal <span class="kw">import</span> <span class="fn">hilbert</span>, <span class="fn">butter</span>, <span class="fn">sosfiltfilt</span>
 
 <span class="cm"># epochs: (n_epochs, n_samples) — e.g., -0.5 to 1.5s around stimulus onset</span>
 sfreq = <span class="num">256.0</span>
 t_epoch = np.<span class="fn">arange</span>(epochs.shape[<span class="num">1</span>]) / sfreq - <span class="num">0.5</span>
 
-<span class="cm"># Process each trial independently</span>
+<span class="cm"># Ensemble fit + evoked separation + per-epoch reconstruction</span>
+result = <span class="fn">meeglet_specparam_reconstruct_epochs</span>(
+    epochs, sfreq,
+    separate_evoked=<span class="num">True</span>,     <span class="cm"># separate ERP from induced</span>
+    separation=<span class="str">"subtraction"</span>,
+    foi_start=<span class="num">2.0</span>, foi_end=<span class="num">40.0</span>,
+    bw_oct=<span class="num">0.5</span>,
+    fit_stride=<span class="num">25</span>,
+    freq_range=[<span class="num">1</span>, <span class="num">40</span>],
+    n_iter=<span class="num">5</span>,
+)
+
+<span class="cm"># Per-trial induced periodic envelopes</span>
+sos = <span class="fn">butter</span>(<span class="num">4</span>, [<span class="num">8</span>, <span class="num">13</span>], btype=<span class="str">"band"</span>, fs=sfreq, output=<span class="str">"sos"</span>)
 alpha_envelopes = []
-exponent_trajectories = []
-
-<span class="kw">for</span> epoch <span class="kw">in</span> epochs:
-    result = <span class="fn">meeglet_specparam_reconstruct</span>(
-        epoch, sfreq,
-        component=<span class="str">"periodic"</span>,
-        foi_start=<span class="num">2.0</span>, foi_end=<span class="num">40.0</span>,
-        bw_oct=<span class="num">0.5</span>,
-        fit_stride=<span class="num">25</span>,
-        power_window=<span class="num">200</span>,
-        freq_range=[<span class="num">1</span>, <span class="num">40</span>],
-        n_iter=<span class="num">5</span>,
-    )
-
-    <span class="cm"># Alpha envelope within this trial</span>
-    sos = <span class="fn">butter</span>(<span class="num">4</span>, [<span class="num">8</span>, <span class="num">13</span>], btype=<span class="str">"band"</span>, fs=sfreq, output=<span class="str">"sos"</span>)
-    alpha_bp = <span class="fn">sosfiltfilt</span>(sos, result.reconstruction)
+<span class="kw">for</span> k <span class="kw">in</span> <span class="fn">range</span>(epochs.shape[<span class="num">0</span>]):
+    alpha_bp = <span class="fn">sosfiltfilt</span>(sos, result.periodic[k])
     alpha_envelopes.<span class="fn">append</span>(np.<span class="fn">abs</span>(<span class="fn">hilbert</span>(alpha_bp)))
 
-    <span class="cm"># Track how the aperiodic exponent evolves within the trial</span>
-    exponent_trajectories.<span class="fn">append</span>(result.fit.aperiodic_params[:, <span class="num">1</span>])
-
-<span class="cm"># Average across trials: event-related alpha envelope</span>
 mean_alpha_env = np.<span class="fn">mean</span>(alpha_envelopes, axis=<span class="num">0</span>)
 
 <span class="cm"># Quantify alpha desynchronization: post-stim vs. baseline</span>
@@ -1103,8 +1210,8 @@ post_stim = mean_alpha_env[(t_epoch > <span class="num">0.2</span>) & (t_epoch <
 erd_pct = <span class="num">100</span> * (baseline - post_stim) / baseline
 <span class="fn">print</span>(<span class="str">f"Alpha ERD: </span>{erd_pct:<span class="str">.1f</span>}<span class="str">%"</span>)
 
-<span class="cm"># Unlike static decomposition, this captures the time course of</span>
-<span class="cm"># desynchronization within each trial, not just a per-epoch average</span></code></pre>
+<span class="cm"># The evoked response is separated cleanly</span>
+<span class="fn">print</span>(<span class="str">f"Evoked RMS: </span>{np.<span class="fn">sqrt</span>(np.<span class="fn">mean</span>(result.evoked ** <span class="num">2</span>)):<span class="str">.4f</span>}<span class="str">"</span>)</code></pre>
 
             <!-- Workflow 3 -->
             <hr class="section-divider">
@@ -1263,6 +1370,10 @@ offsets = np.<span class="fn">where</span>(diff_mask == -<span class="num">1</sp
                     <div class="desc">Aperiodic-oscillatory coupling: virtual-channel CSD</div>
                 </div>
                 <div class="arch-file">
+                    <div class="name">epochs.py</div>
+                    <div class="desc">Multi-epoch ensemble estimation &amp; evoked separation</div>
+                </div>
+                <div class="arch-file">
                     <div class="name">diagnostics.py</div>
                     <div class="desc">Visualization helpers</div>
                 </div>
@@ -1325,7 +1436,7 @@ offsets = np.<span class="fn">where</span>(diff_mask == -<span class="num">1</sp
         <!-- ============================================================ -->
         <section>
             <h2>Testing</h2>
-<pre><code>pytest tests/ -v  <span class="cm"># 156 tests</span></code></pre>
+<pre><code>pytest tests/ -v  <span class="cm"># 181 tests</span></code></pre>
 
             <h3>Run Validation</h3>
 <pre><code>python -m validation.sim_stationary

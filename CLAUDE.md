@@ -43,6 +43,7 @@ src/meeglet_specparam_weights/
 ├── synthesis.py                 # Weighted coefficients → time-domain signal via OLA
 ├── pipeline.py                  # End-to-end: signal in → ReconstructionResult out
 ├── coupling.py                  # Aperiodic-oscillatory coupling: virtual-channel CSD
+├── epochs.py                    # Multi-epoch ensemble estimation: trial-averaged fitting
 └── diagnostics.py               # Fit quality, energy accounting, visualization helpers
 
 tests/
@@ -53,6 +54,7 @@ tests/
 ├── test_pipeline.py             # End-to-end on synthetic signals with known ground truth
 ├── test_diagnostics.py          # Plotting smoke tests, metric calculations
 ├── test_coupling.py             # CSD shape, Hermitian, Nyquist, coupling recovery
+├── test_epochs.py               # Multi-epoch ensemble estimation, evoked separation
 └── conftest.py                  # Shared fixtures: synthetic signals, standard wavelet configs
 
 validation/
@@ -131,6 +133,19 @@ class AperiodicCouplingResult:
     effective_nyquist: float     # Hz — coupling only meaningful below this
     foi: np.ndarray              # center frequencies
     channel_labels: list[str]    # ['ch0', ..., 'exponent', 'offset']
+```
+
+### EpochDecompositionResult (epochs output)
+```python
+@dataclass
+class EpochDecompositionResult:
+    aperiodic: np.ndarray           # (n_epochs, n_samples)
+    periodic: np.ndarray            # (n_epochs, n_samples)
+    evoked: np.ndarray | None       # (n_samples,) if separate_evoked=True
+    ensemble_fit: TimeResolvedFit   # fit from trial-averaged power
+    ensemble_power: np.ndarray      # (n_freqs, n_times) trial-averaged |Z|²
+    separation: str                 # "subtraction", "wiener", "state_space"
+    energy_ratios: np.ndarray       # (n_epochs,) per-epoch energy ratio
 ```
 
 ## Environment

@@ -149,46 +149,42 @@ print(f"Peak-trough asymmetry: {asymmetry:.2f}")
 
 ### Workflow 2: Within-trial event-related decomposition
 
-Traditional 1/f-corrected ERP analysis fits one specparam model per epoch and subtracts a static aperiodic signal. The wavelet method resolves spectral changes *within* each trial — alpha desynchronization, aperiodic slope changes — giving you a time-varying periodic power envelope rather than a single per-epoch number.
+Traditional 1/f-corrected ERP analysis fits one specparam model per epoch and subtracts a static aperiodic signal. The ensemble epoch pipeline averages power across trials for a stable fit, separates the evoked (phase-locked) response, and gives per-trial induced periodic envelopes rather than a single per-epoch number.
 
 ```python
 import numpy as np
-from meeglet_specparam_weights import meeglet_specparam_reconstruct
+from meeglet_specparam_weights import meeglet_specparam_reconstruct_epochs
 from scipy.signal import hilbert, butter, sosfiltfilt
 
 # epochs: (n_epochs, n_samples) — e.g., -0.5 to 1.5s around stimulus
 sfreq = 256.0
 t_epoch = np.arange(epochs.shape[1]) / sfreq - 0.5
 
+# Ensemble fit + evoked separation + per-epoch reconstruction
+result = meeglet_specparam_reconstruct_epochs(
+    epochs, sfreq,
+    separate_evoked=True,     # separate ERP from induced
+    separation="subtraction",
+    foi_start=2.0, foi_end=40.0,
+    bw_oct=0.5,
+    fit_stride=25,
+    freq_range=[1, 40],
+    n_iter=5,
+)
+
+# Per-trial induced periodic envelopes
+sos = butter(4, [8, 13], btype="band", fs=sfreq, output="sos")
 alpha_envelopes = []
-exponent_trajectories = []
-
-for epoch in epochs:
-    result = meeglet_specparam_reconstruct(
-        epoch, sfreq,
-        component="periodic",
-        foi_start=2.0, foi_end=40.0,
-        bw_oct=0.5,
-        fit_stride=25,
-        power_window=200,
-        freq_range=[1, 40],
-        n_iter=5,
-    )
-
-    # Alpha envelope within this trial
-    sos = butter(4, [8, 13], btype="band", fs=sfreq, output="sos")
-    alpha_bp = sosfiltfilt(sos, result.reconstruction)
+for k in range(epochs.shape[0]):
+    alpha_bp = sosfiltfilt(sos, result.periodic[k])
     alpha_envelopes.append(np.abs(hilbert(alpha_bp)))
 
-    # Track aperiodic exponent within the trial
-    exponent_trajectories.append(result.fit.aperiodic_params[:, 1])
-
-# Event-related alpha envelope
 mean_alpha_env = np.mean(alpha_envelopes, axis=0)
 baseline = mean_alpha_env[t_epoch < 0].mean()
 post_stim = mean_alpha_env[(t_epoch > 0.2) & (t_epoch < 0.8)].mean()
 erd_pct = 100 * (baseline - post_stim) / baseline
 print(f"Alpha ERD: {erd_pct:.1f}%")
+print(f"Evoked RMS: {np.sqrt(np.mean(result.evoked ** 2)):.4f}")
 ```
 
 ### Workflow 3: Continuous aperiodic state tracking
@@ -273,6 +269,55 @@ for i, (on, off) in enumerate(zip(onsets, offsets)):
     peak_amp = beta_envelope[on:off].max()
     print(f"Burst {i}: onset={on / sfreq:.3f}s, "
           f"duration={duration_ms:.0f}ms, peak={peak_amp:.3f}")
+```
+
+## Multi-epoch ensemble estimation
+
+For epoched M/EEG data, single-trial power is noisy. Averaging power across trials before fitting specparam yields much more stable parameter estimates. The ensemble fit is applied to each individual epoch for per-trial reconstruction.
+
+```python
+from meeglet_specparam_weights import meeglet_specparam_reconstruct_epochs
+
+# epochs: (n_epochs, n_samples) array
+result = meeglet_specparam_reconstruct_epochs(
+    epochs, sfreq,
+    separation="subtraction",
+    foi_start=2.0, foi_end=40.0,
+    bw_oct=0.5,
+    fit_stride=25,
+    freq_range=[1, 40],
+    n_iter=5,
+)
+
+aperiodic = result.aperiodic    # (n_epochs, n_samples)
+periodic = result.periodic      # (n_epochs, n_samples)
+# aperiodic[k] + periodic[k] == epochs[k]  (machine precision)
+```
+
+With `separate_evoked=True`, trial-averaged wavelet coefficients (phase-locked activity) are subtracted before fitting, so only induced (non-phase-locked) activity is decomposed:
+
+```python
+result = meeglet_specparam_reconstruct_epochs(
+    epochs, sfreq,
+    separate_evoked=True,
+    separation="subtraction",
+    n_iter=5,
+)
+
+evoked = result.evoked          # (n_samples,) — phase-locked signal
+aperiodic = result.aperiodic    # (n_epochs, n_samples) — induced aperiodic
+periodic = result.periodic      # (n_epochs, n_samples) — induced periodic
+# aperiodic[k] + periodic[k] == epochs[k] - evoked
+```
+
+For custom workflows, `ensemble_decompose()` returns per-epoch decompositions and trial-averaged power without fitting:
+
+```python
+from meeglet_specparam_weights import ensemble_decompose
+
+decompositions, ensemble_power = ensemble_decompose(epochs, sfreq, foi_start=2, foi_end=40)
+# decompositions: list[WaveletDecomposition], one per epoch
+# ensemble_power: (n_freqs, n_times) — trial-averaged |Z|²
 ```
 
 ## Multi-channel support
@@ -402,7 +447,7 @@ python -m validation.sim_ground_truth  # head-to-head method comparison
 ## Testing
 
 ```bash
-pytest tests/ -v  # 156 tests
+pytest tests/ -v  # 181 tests
 ```
 
 ## Citations

@@ -1,10 +1,10 @@
 # Progress
 
 ## Current Focus
-Phase 19 complete. 156 tests passing. Phase 20 (multi-epoch ensemble estimation) is next.
+All 20 phases complete. 181 tests passing.
 
 ## What Exists
-- `src/meeglet_specparam_weights/__init__.py` — public API re-exports (includes state-space, separation)
+- `src/meeglet_specparam_weights/__init__.py` — public API re-exports (includes state-space, separation, epochs)
 - `src/meeglet_specparam_weights/separation.py` — Phase 17 ✓ (SeparationResult, subtraction/wiener/bias diagnostics)
 - `src/meeglet_specparam_weights/state_space.py` — Phase 18 ✓ (Kalman oscillator + AR(p) decomposition)
 - `src/meeglet_specparam_weights/wavelet_analysis.py` — Phase 1 ✓ (vectorized NaN propagation via binary_dilation)
@@ -24,7 +24,11 @@ Phase 19 complete. 156 tests passing. Phase 20 (multi-epoch ensemble estimation)
 - `tests/test_diagnostics.py` — 8 tests ✓
 - `validation/` — 5 simulation scripts + metrics.py + RESULTS.md ✓ (includes Phase 19 ground truth comparison)
 - `docs/` — GitHub Pages site, figures, generation script ✓
-- **Total: 112 tests, all passing**
+- `tests/test_separation.py` — 21 tests ✓ (Phase 17 separation framework)
+- `tests/test_state_space.py` — 23 tests ✓ (Phase 18 Kalman + AR decomposition)
+- `src/meeglet_specparam_weights/epochs.py` — Phase 20 ✓ (ensemble decompose, epoch reconstruction, evoked separation)
+- `tests/test_epochs.py` — 25 tests ✓ (Phase 20 multi-epoch ensemble estimation)
+- **Total: 181 tests, all passing**
 
 ## Key Implementation Details
 - Wavelet convolution uses scipy.signal.fftconvolve in 'same' mode at every sample
@@ -38,42 +42,19 @@ Phase 19 complete. 156 tests passing. Phase 20 (multi-epoch ensemble estimation)
 - Peak params: specparam returns FWHM bandwidth, must convert to std for reconstruction
 - Python 3.12 at /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
 
-## What's Done This Session (simplify + Phase 15)
-- **Bug fix**: `_ola_synthesis_signal_only` was deleted but still called in `_synthesize_single` — replaced with `_ola_synthesis(..., compute_norm=False)[0]`
-- **Bug fix**: Unit mismatch in `_extract_component_power_single` — aperiodic/periodic power was in Hz units but model_power is in oct units. Added `hz_to_oct = foi * np.log(2)` multiplication.
-- **Vectorizations applied**:
-  - `_propagate_nans`: nested loop → `scipy.ndimage.binary_dilation`
-  - `_reconstruct_model_power`: per-time loop → batch aperiodic across all valid times
-  - `effective_dof` autocorrelation: per-lag list comprehension → `np.correlate(mode="full")`
-  - `compute_aperiodic_csd`: per-freq loop → `np.einsum` fast path (fallback for NaN case)
-  - `aperiodic_amplitude_correlation`: hoisted `np.abs(Z[ch])` out of inner loop
-- **Phase 15a**: `wavelet_effective_dof(sigma_time, sfreq, n_samples)` — frequency-dependent DOF = T / (2 * sigma_time(f))
-- **Phase 15b**: Frame bounds A, B from normalization envelope → `frame_condition` (B/A) in `ReconstructionResult`
-- **Phase 15c**: `make_pink_noise(n_samples, sfreq, exponent_half, seed)` extracted to conftest.py, replaced 6+ inline copies across 6 test files
-- **Phase 15d**: Module docstrings updated — weight_surface.py (Wiener filter), synthesis.py (frame multiplier, Balazs 2007)
-- **CLAUDE.md**: Updated ReconstructionResult schema (added `frame_condition`), updated design principle #5
-- **105 tests passing** (101 original + 4 new: 3 wavelet_effective_dof + 1 frame_condition)
-
-## What's Done This Session (Phase 16: Subtraction Paradigm)
-- **Core change**: `pipeline.py` — when `component="aperiodic"`, computes excess weights
-  `w_excess = sqrt(max(0, 1 - w_ap²))`, synthesizes periodic excess, subtracts from original
-- **Key insight**: Original periodic weights (`sqrt(P_periodic / |Z|²)`) could exceed 1.0
-  (max 56.7!), causing OLA synthesis to explode. Excess weights are bounded [0, 1].
-- **Forced `n_iter >= 5`** for the periodic synthesis in subtraction mode
-- **New `ReconstructionResult.method` field**: "subtraction" (default for aperiodic) or "weight"
-- **Legacy `aperiodic_method="wiener"` parameter** for backward compatibility
-- **7 new tests**: method field, decomposition sums to original, periodic excess peak,
-  bounded weights, invalid method raises ValueError
-- **Validation**: All 4 scripts pass. Replaced alpha suppression metric with alpha
-  preservation metric in sim_stationary.py and sim_noise_sweep.py
-- **Docs**: Updated CLAUDE.md, README.md, guardrails.md, module docstrings, RESULTS.md
-- **112 tests passing** (105 original + 7 new)
+## What's Done This Session (Phase 20)
+- **Phase 20**: Multi-epoch ensemble estimation
+  - `epochs.py`: `ensemble_decompose()` and `meeglet_specparam_reconstruct_epochs()`
+  - Ensemble power averaging: trial-averaged |Z|² for stable specparam fits
+  - Evoked separation: trial-averaged wavelet coefficients subtracted → induced-only decomposition
+  - Per-epoch reconstruction: ensemble fit applied to each individual epoch via chosen separation strategy
+  - `EpochDecompositionResult` dataclass: aperiodic, periodic, evoked, ensemble_fit, ensemble_power
+  - 25 tests covering shapes, subtraction sum-to-original, exponent recovery, evoked correlation, validation
+  - All 3 separation methods (subtraction, wiener, state_space) supported
 
 ## What's Next
-All planned phases (1-16) complete. Potential future work:
-- pip-installable package (pyproject.toml)
-- Real EEG data examples
-- Surrogate testing implementation for coupling inference
+All 20 planned phases complete. 181 tests passing.
+- Potential future work: pip-installable package, real EEG data examples, surrogate testing
 
 ## Decisions Made (Do Not Revisit)
 1. Use meeglet's Morlet wavelets (not STFT) as the time-frequency representation.
@@ -93,6 +74,8 @@ All planned phases (1-16) complete. Potential future work:
 15. Frame condition B/A as the synthesis quality diagnostic (not energy ratio alone).
 16. Wavelet-aware DOF n_eff(f) = T/(2*sigma_time) alongside generic Bartlett DOF.
 17. Aperiodic via subtraction (not Wiener): excess_w = sqrt(1-P_ap/|Z|²), aperiodic = orig - periodic.
+18. State-space oscillator absorbs ALL narrowband power near peaks (including aperiodic) — alpha_power_ratio ≈ 0. Fundamental, not a bug.
+19. Ground truth validation: subtraction best for waveform fidelity, Wiener best for spectral shape, state-space intermediate. No single method dominates.
 
 ## Known Issues
 - Synthesis is approximate (OLA with normalization) — frame_condition and energy_ratio track quality

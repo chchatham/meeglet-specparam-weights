@@ -219,3 +219,32 @@ The old validation metric "alpha suppression > 90%" measured how much alpha powe
 was removed from the aperiodic reconstruction. This was the old (incorrect) goal.
 The new metric is "alpha preservation at 1/f level": the aperiodic reconstruction
 should have alpha-band power matching the 1/f model prediction, not zero.
+
+## Separation Strategy Constraints (Phases 17–19)
+
+### 🚧 All three separation methods face the same fundamental peak-frequency limitation
+Subtraction, Wiener, and state-space all struggle to perfectly separate aperiodic
+and periodic power at peak frequencies. This is a fundamental single-observation
+source-separation limit, not an implementation bug. Ground truth validation confirms
+no method achieves alpha_power_ratio ≈ 1.0 at high periodic fractions.
+
+### 🚧 State-space oscillator absorbs ALL narrowband aperiodic power
+The Kalman smoother's damped oscillator component absorbs everything near the peak
+frequency — including the aperiodic 1/f contribution. This results in
+alpha_power_ratio ≈ 0 for the aperiodic reconstruction. It is inherent to the
+model structure, not a tuning issue.
+
+### 🚧 `separation` parameter replaces deprecated `aperiodic_method`
+pipeline.py now uses `separation` ("subtraction", "wiener", "state_space").
+The old `aperiodic_method` still works but emits DeprecationWarning. Specifying
+both raises ValueError. Update all new code to use `separation`.
+
+### 🚧 __init__.py eager imports nullify lazy imports in pipeline.py
+Since `__init__.py` already imports `state_space_separate` at module load,
+putting a lazy import inside an if-branch in pipeline.py does nothing — the
+module is already loaded. Always use explicit top-level imports.
+
+### 🚧 Validation scripts should share decomposition/fit across methods
+Wavelet decomposition and specparam fit are expensive. When comparing multiple
+separation methods on the same signal, compute decomposition and fit once and
+pass them to all methods. Structure loops as seed-outer, method-inner.

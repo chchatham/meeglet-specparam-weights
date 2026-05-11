@@ -25,6 +25,11 @@ from .coupling import (
     effective_dof,
     wavelet_effective_dof,
 )
+from .epochs import (
+    EpochDecompositionResult,
+    ensemble_decompose,
+    meeglet_specparam_reconstruct_epochs,
+)
 from .diagnostics import (
     plot_fit_quality,
     plot_weight_surface,

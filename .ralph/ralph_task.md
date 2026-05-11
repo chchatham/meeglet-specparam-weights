@@ -185,10 +185,10 @@ reconstruction idea from specparam-fft-weights.
 - [x] Validation matrix across P_per/P_total ratios {0.1, 0.3, 0.5, 0.7, 0.9}
 - [x] RESULTS.md updated with comparison table and interpretation
 
-### Phase 20: Multi-Epoch Ensemble Estimation (TODO)
-- [ ] `epochs.py`: ensemble_decompose, meeglet_specparam_reconstruct_epochs
-- [ ] Evoked separation via trial-averaged coefficients
-- [ ] Tests in test_epochs.py
+### Phase 20: Multi-Epoch Ensemble Estimation ✅
+- [x] `epochs.py`: ensemble_decompose, meeglet_specparam_reconstruct_epochs
+- [x] Evoked separation via trial-averaged coefficients
+- [x] Tests in test_epochs.py (25 tests)
 
 ## Current Focus
-Phases 17-19 complete. 156 tests passing. Phase 20 (multi-epoch ensemble estimation) is next.
+All phases complete. 181 tests passing.
